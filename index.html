@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>WOTG Teleprompter</title>
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0a;--text:#e0e0e0;--accent:#4fc3f7;--panel:#1a1a2e;
+  --border:#333;--font-size:36px;--text-width:90%;--line-height:1.6;
+}
+html,body{height:100%;overflow:hidden;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--text);transition:background .3s,color .3s}
+
+/* Light Mode */
+body.light{--bg:#f0f0f0;--text:#111;--panel:#fff;--border:#ccc;--accent:#0277bd}
+
+/* Mirror Mode */
+body.mirror .scroll-content{transform:scaleX(-1)}
+
+/* --- TOOLBAR --- */
+.toolbar{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:var(--panel);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:6px;padding:6px 10px;
+  font-size:13px;flex-wrap:wrap;transition:transform .3s;
+}
+.toolbar.hidden{transform:translateY(-100%)}
+.toolbar button,.toolbar select{
+  background:var(--border);color:var(--text);border:none;border-radius:6px;
+  padding:6px 10px;font-size:13px;cursor:pointer;min-height:36px;
+  display:flex;align-items:center;justify-content:center;
+}
+.toolbar button:active{opacity:.7}
+.toolbar button.active{background:var(--accent);color:#000}
+.toolbar .spacer{flex:1}
+.toolbar .group{display:flex;align-items:center;gap:4px}
+.toolbar .group label{font-size:11px;opacity:.7;white-space:nowrap}
+.speed-display{
+  min-width:32px;text-align:center;font-weight:bold;font-size:15px;color:var(--accent);
+}
+
+/* --- SCROLL AREA --- */
+.scroll-area{
+  position:fixed;top:0;left:0;right:0;bottom:0;overflow:hidden;
+}
+.scroll-content{
+  padding-top:var(--margin-top,40vh);padding-bottom:60vh;
+  width:var(--text-width);max-width:100%;margin:0 auto;
+  font-size:var(--font-size);line-height:var(--line-height);
+  transition:transform .2s;white-space:pre-wrap;word-wrap:break-word;
+}
+
+/* --- GUIDE LINE --- */
+.guide-line{
+  position:fixed;left:0;right:0;height:2px;background:var(--accent);
+  opacity:.5;pointer-events:none;z-index:50;top:30%;
+}
+
+/* --- EDIT MODAL --- */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;
+  display:none;align-items:center;justify-content:center;padding:16px;
+}
+.modal-overlay.show{display:flex}
+.modal{
+  background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  width:100%;max-width:700px;max-height:90vh;display:flex;flex-direction:column;
+  overflow:hidden;
+}
+.modal-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid var(--border);
+}
+.modal-header h2{font-size:16px}
+.modal textarea{
+  flex:1;min-height:40vh;padding:16px;font-size:16px;line-height:1.5;
+  background:var(--bg);color:var(--text);border:none;resize:none;
+  font-family:inherit;
+}
+.modal-footer{
+  display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);
+}
+.modal-footer button{
+  flex:1;padding:10px;border:none;border-radius:8px;font-size:14px;
+  cursor:pointer;font-weight:600;
+}
+.btn-primary{background:var(--accent);color:#000}
+.btn-secondary{background:var(--border);color:var(--text)}
+
+/* --- SCRIPTS LIST MODAL --- */
+.scripts-list{
+  flex:1;overflow-y:auto;padding:8px;
+}
+.script-item{
+  display:flex;align-items:center;padding:10px 12px;border-radius:8px;
+  margin-bottom:4px;cursor:pointer;gap:10px;
+}
+.script-item:hover,.script-item:active{background:var(--border)}
+.script-item .title{flex:1;font-size:14px}
+.script-item .date{font-size:11px;opacity:.5}
+.script-item .del-btn{
+  background:none;border:none;color:#e53935;font-size:18px;cursor:pointer;
+  padding:4px 8px;border-radius:4px;
+}
+.script-item .del-btn:hover{background:rgba(229,57,53,.15)}
+
+/* --- SETTINGS PANEL --- */
+.settings-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;
+  display:none;align-items:flex-end;justify-content:center;
+}
+.settings-overlay.show{display:flex}
+.settings-panel{
+  background:var(--panel);border-top:1px solid var(--border);
+  border-radius:16px 16px 0 0;width:100%;max-width:500px;
+  max-height:80vh;overflow-y:auto;padding:20px 16px 32px;
+}
+.settings-panel h3{font-size:15px;margin-bottom:16px;color:var(--accent)}
+.setting-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0;border-bottom:1px solid var(--border);
+}
+.setting-row label{font-size:13px;flex:1}
+.setting-row input[type=range]{width:120px}
+.setting-row .val{min-width:40px;text-align:right;font-size:13px;opacity:.7}
+.setting-row select{
+  background:var(--border);color:var(--text);border:none;border-radius:6px;
+  padding:6px 10px;font-size:13px;
+}
+
+/* --- BOTTOM CONTROLS (floating) --- */
+.bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:100;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:10px 16px 20px;
+  background:linear-gradient(transparent,var(--bg) 30%);
+}
+.bottom-bar button{
+  background:var(--panel);color:var(--text);border:1px solid var(--border);
+  border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.bottom-bar .play-btn{
+  width:60px;height:60px;font-size:26px;
+  background:var(--accent);color:#000;border:none;
+}
+.bottom-bar button:active{opacity:.7}
+
+/* --- EMPTY STATE --- */
+.empty-state{
+  text-align:center;padding-top:30vh;opacity:.4;
+}
+.empty-state p{font-size:18px;margin-bottom:8px}
+
+/* Scrollbar hide */
+.scroll-area::-webkit-scrollbar{display:none}
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div class="toolbar" id="toolbar">
+  <button onclick="openScripts()" title="Scripts">📁</button>
+  <button onclick="openEditor()" title="New/Edit">✏️</button>
+  <div class="spacer"></div>
+  <div class="group">
+    <button onclick="changeSpeed(-0.5)" title="Slower">−</button>
+    <span class="speed-display" id="speedDisplay">3</span>
+    <button onclick="changeSpeed(0.5)" title="Faster">+</button>
+  </div>
+  <button onclick="toggleMirror()" id="mirrorBtn" title="Mirror">🪞</button>
+  <button onclick="toggleTheme()" id="themeBtn" title="Theme">🌙</button>
+  <button onclick="openSettings()" title="Settings">⚙️</button>
+</div>
+
+<!-- GUIDE LINE -->
+<div class="guide-line" id="guideLine"></div>
+
+<!-- SCROLL AREA -->
+<div class="scroll-area" id="scrollArea">
+  <div class="scroll-content" id="scrollContent">
+    <div class="empty-state" id="emptyState">
+      <p>📜 No script loaded</p>
+      <p style="font-size:14px">Tap ✏️ to create or 📁 to load a script</p>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM CONTROLS -->
+<div class="bottom-bar" id="bottomBar">
+  <button onclick="resetScroll()" title="Reset">⏮</button>
+  <button onclick="changeSpeed(-0.5)" title="Slower">⏪</button>
+  <button class="play-btn" onclick="togglePlay()" id="playBtn" title="Play/Pause">▶</button>
+  <button onclick="changeSpeed(0.5)" title="Faster">⏩</button>
+  <button onclick="toggleToolbar()" title="Hide UI">👁</button>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="editorModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="editorTitle">New Script</h2>
+      <button onclick="closeEditor()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <input type="text" id="scriptNameInput" placeholder="Script title..." 
+      style="padding:10px 16px;font-size:14px;border:none;border-bottom:1px solid var(--border);background:var(--bg);color:var(--text)">
+    <textarea id="scriptTextarea" placeholder="Paste or type your script here..."></textarea>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeEditor()">Cancel</button>
+      <button class="btn-primary" onclick="saveScript()">💾 Save & Load</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCRIPTS LIST MODAL -->
+<div class="modal-overlay" id="scriptsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📁 Saved Scripts</h2>
+      <button onclick="closeScripts()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div class="scripts-list" id="scriptsList"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeScripts()">Close</button>
+      <button class="btn-primary" onclick="closeScripts();openEditor()">+ New Script</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div class="settings-overlay" id="settingsOverlay" onclick="if(event.target===this)closeSettings()">
+  <div class="settings-panel">
+    <h3>⚙️ Display Settings</h3>
+    
+    <div class="setting-row">
+      <label>Font Size</label>
+      <input type="range" min="16" max="80" value="36" id="fontSizeSlider" oninput="updateSetting('fontSize',this.value)">
+      <span class="val" id="fontSizeVal">36px</span>
+    </div>
+    
+    <div class="setting-row">
+      <label>Line Height</label>
+      <input type="range" min="1" max="3" step="0.1" value="1.6" id="lineHeightSlider" oninput="updateSetting('lineHeight',this.value)">
+      <span class="val" id="lineHeightVal">1.6</span>
+    </div>
+    
+    <div class="setting-row">
+      <label>Text Width</label>
+      <input type="range" min="40" max="100" value="90" id="textWidthSlider" oninput="updateSetting('textWidth',this.value)">
+      <span class="val" id="textWidthVal">90%</span>
+    </div>
+    
+    <div class="setting-row">
+      <label>Top Margin</label>
+      <input type="range" min="5" max="60" value="40" id="marginTopSlider" oninput="updateSetting('marginTop',this.value)">
+      <span class="val" id="marginTopVal">40%</span>
+    </div>
+    
+    <div class="setting-row">
+      <label>Guide Position</label>
+      <input type="range" min="10" max="60" value="30" id="guideSlider" oninput="updateSetting('guide',this.value)">
+      <span class="val" id="guideVal">30%</span>
+    </div>
+    
+    <div class="setting-row">
+      <label>Font Family</label>
+      <select id="fontSelect" onchange="updateSetting('fontFamily',this.value)">
+        <option value="Georgia, serif">Georgia</option>
+        <option value="system-ui, sans-serif">System UI</option>
+        <option value="'Courier New', monospace">Courier</option>
+        <option value="'Arial', sans-serif">Arial</option>
+        <option value="'Times New Roman', serif">Times</option>
+        <option value="'Verdana', sans-serif">Verdana</option>
+      </select>
+    </div>
+    
+    <div class="setting-row">
+      <label>Text Color</label>
+      <input type="color" id="textColorPicker" value="#e0e0e0" onchange="updateSetting('textColor',this.value)">
+    </div>
+
+    <div class="setting-row">
+      <label>Background</label>
+      <input type="color" id="bgColorPicker" value="#0a0a0a" onchange="updateSetting('bgColor',this.value)">
+    </div>
+    
+    <div style="margin-top:16px;text-align:center">
+      <button class="btn-secondary" onclick="resetSettings()" style="padding:8px 20px;border:none;border-radius:8px;cursor:pointer">
+        Reset Defaults
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== DATABASE (IndexedDB) =====
+const DB_NAME = 'TeleprompterDB';
+const DB_VERSION = 1;
+const STORE = 'scripts';
+let db;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE)) {
+        const store = d.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('updated', 'updated');
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; resolve(db); };
+    req.onerror = e => reject(e);
+  });
+}
+
+function dbPut(script) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(script);
+    tx.oncomplete = () => resolve();
+    tx.onerror = e => reject(e);
+  });
+}
+
+function dbGetAll() {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result.sort((a, b) => b.updated - a.updated));
+    req.onerror = e => reject(e);
+  });
+}
+
+function dbDelete(id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = e => reject(e);
+  });
+}
+
+// ===== STATE =====
+let speed = 3;
+let isPlaying = false;
+let scrollY = 0;
+let animFrame = null;
+let lastTime = 0;
+let currentScriptId = null;
+let editingScriptId = null;
+let toolbarVisible = true;
+let isMirror = false;
+let isLight = false;
+
+// ===== SETTINGS =====
+const defaults = {
+  fontSize: 36, lineHeight: 1.6, textWidth: 90,
+  marginTop: 40, guide: 30, fontFamily: 'Georgia, serif',
+  textColor: '#e0e0e0', bgColor: '#0a0a0a'
+};
+
+function loadSettings() {
+  const s = JSON.parse(localStorage.getItem('tp_settings') || 'null') || { ...defaults };
+  applySettings(s);
+  return s;
+}
+
+function applySettings(s) {
+  const el = document.getElementById('scrollContent');
+  const root = document.documentElement;
+  el.style.fontSize = s.fontSize + 'px';
+  el.style.lineHeight = s.lineHeight;
+  el.style.width = s.textWidth + '%';
+  el.style.paddingTop = s.marginTop + 'vh';
+  el.style.fontFamily = s.fontFamily;
+  document.getElementById('guideLine').style.top = s.guide + '%';
+  if (s.textColor) { el.style.color = s.textColor; }
+  if (s.bgColor) { document.body.style.background = s.bgColor; }
+  // Update slider displays
+  const ids = ['fontSize','lineHeight','textWidth','marginTop','guide'];
+  const suffixes = ['px','','%','%','%'];
+  ids.forEach((id, i) => {
+    const slider = document.getElementById(id + 'Slider');
+    const val = document.getElementById(id + 'Val');
+    if (slider) slider.value = s[id];
+    if (val) val.textContent = s[id] + suffixes[i];
+  });
+  const fontSel = document.getElementById('fontSelect');
+  if (fontSel) fontSel.value = s.fontFamily;
+  const tcp = document.getElementById('textColorPicker');
+  if (tcp) tcp.value = s.textColor || defaults.textColor;
+  const bgp = document.getElementById('bgColorPicker');
+  if (bgp) bgp.value = s.bgColor || defaults.bgColor;
+}
+
+function updateSetting(key, val) {
+  const s = JSON.parse(localStorage.getItem('tp_settings') || 'null') || { ...defaults };
+  s[key] = isNaN(val) ? val : parseFloat(val);
+  localStorage.setItem('tp_settings', JSON.stringify(s));
+  applySettings(s);
+}
+
+function resetSettings() {
+  localStorage.setItem('tp_settings', JSON.stringify({ ...defaults }));
+  applySettings(defaults);
+  // Reset theme
+  isLight = false;
+  document.body.classList.remove('light');
+  document.getElementById('themeBtn').textContent = '🌙';
+}
+
+// ===== SCROLL ENGINE =====
+function startScroll() {
+  lastTime = performance.now();
+  function step(now) {
+    if (!isPlaying) return;
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    scrollY += speed * 30 * dt; // pixels per second = speed * 30
+    document.getElementById('scrollContent').style.transform =
+      `translateY(${-scrollY}px)` + (isMirror ? ' scaleX(-1)' : '');
+    animFrame = requestAnimationFrame(step);
+  }
+  animFrame = requestAnimationFrame(step);
+}
+
+function stopScroll() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+}
+
+function togglePlay() {
+  isPlaying = !isPlaying;
+  document.getElementById('playBtn').textContent = isPlaying ? '⏸' : '▶';
+  if (isPlaying) startScroll(); else stopScroll();
+}
+
+function resetScroll() {
+  isPlaying = false;
+  stopScroll();
+  scrollY = 0;
+  document.getElementById('playBtn').textContent = '▶';
+  updateTransform();
+}
+
+function changeSpeed(delta) {
+  speed = Math.max(0.5, Math.min(20, speed + delta));
+  document.getElementById('speedDisplay').textContent = speed % 1 === 0 ? speed : speed.toFixed(1);
+}
+
+function updateTransform() {
+  document.getElementById('scrollContent').style.transform =
+    `translateY(${-scrollY}px)` + (isMirror ? ' scaleX(-1)' : '');
+}
+</script>
+
+<script>
+// ===== MIRROR & THEME =====
+function toggleMirror() {
+  isMirror = !isMirror;
+  document.getElementById('mirrorBtn').classList.toggle('active', isMirror);
+  updateTransform();
+  localStorage.setItem('tp_mirror', isMirror);
+}
+
+function toggleTheme() {
+  isLight = !isLight;
+  document.body.classList.toggle('light', isLight);
+  document.getElementById('themeBtn').textContent = isLight ? '☀️' : '🌙';
+  localStorage.setItem('tp_theme', isLight ? 'light' : 'dark');
+  // Update color pickers to match
+  if (isLight) {
+    updateSetting('textColor', '#111111');
+    updateSetting('bgColor', '#f0f0f0');
+  } else {
+    updateSetting('textColor', '#e0e0e0');
+    updateSetting('bgColor', '#0a0a0a');
+  }
+}
+
+function toggleToolbar() {
+  toolbarVisible = !toolbarVisible;
+  document.getElementById('toolbar').classList.toggle('hidden', !toolbarVisible);
+}
+
+// ===== EDITOR =====
+function openEditor(id) {
+  editingScriptId = id || null;
+  const modal = document.getElementById('editorModal');
+  const nameInput = document.getElementById('scriptNameInput');
+  const textarea = document.getElementById('scriptTextarea');
+  const title = document.getElementById('editorTitle');
+  
+  if (id) {
+    // Load existing script
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).get(id);
+    req.onsuccess = () => {
+      const s = req.result;
+      if (s) {
+        nameInput.value = s.title;
+        textarea.value = s.text;
+        title.textContent = 'Edit Script';
+      }
+      modal.classList.add('show');
+    };
+  } else {
+    nameInput.value = '';
+    textarea.value = '';
+    title.textContent = 'New Script';
+    modal.classList.add('show');
+  }
+}
+
+function closeEditor() {
+  document.getElementById('editorModal').classList.remove('show');
+}
+
+async function saveScript() {
+  const name = document.getElementById('scriptNameInput').value.trim() || 'Untitled';
+  const text = document.getElementById('scriptTextarea').value;
+  if (!text.trim()) { alert('Please enter script text'); return; }
+  
+  const script = {
+    id: editingScriptId || 'script_' + Date.now(),
+    title: name,
+    text: text,
+    updated: Date.now()
+  };
+  
+  await dbPut(script);
+  currentScriptId = script.id;
+  loadScriptToPrompter(script);
+  closeEditor();
+}
+
+function loadScriptToPrompter(script) {
+  const el = document.getElementById('scrollContent');
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.style.display = 'none';
+  el.textContent = script.text;
+  resetScroll();
+  document.title = script.title + ' — WOTG Teleprompter';
+}
+
+// ===== SCRIPTS LIST =====
+async function openScripts() {
+  const modal = document.getElementById('scriptsModal');
+  const list = document.getElementById('scriptsList');
+  const scripts = await dbGetAll();
+  
+  if (scripts.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:40px;opacity:.5">No saved scripts yet</div>';
+  } else {
+    list.innerHTML = scripts.map(s => `
+      <div class="script-item" onclick="loadScript('${s.id}')">
+        <div class="title">${escHtml(s.title)}</div>
+        <div class="date">${new Date(s.updated).toLocaleDateString()}</div>
+        <button class="del-btn" onclick="event.stopPropagation();deleteScript('${s.id}')" title="Delete">🗑</button>
+        <button class="del-btn" onclick="event.stopPropagation();closeScripts();openEditor('${s.id}')" title="Edit" style="color:var(--accent)">✏️</button>
+      </div>
+    `).join('');
+  }
+  modal.classList.add('show');
+}
+
+function closeScripts() {
+  document.getElementById('scriptsModal').classList.remove('show');
+}
+
+async function loadScript(id) {
+  const tx = db.transaction(STORE, 'readonly');
+  const req = tx.objectStore(STORE).get(id);
+  req.onsuccess = () => {
+    if (req.result) {
+      currentScriptId = id;
+      loadScriptToPrompter(req.result);
+      closeScripts();
+    }
+  };
+}
+
+async function deleteScript(id) {
+  if (!confirm('Delete this script?')) return;
+  await dbDelete(id);
+  openScripts(); // refresh list
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ===== SETTINGS PANEL =====
+function openSettings() {
+  document.getElementById('settingsOverlay').classList.add('show');
+}
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('show');
+}
+
+// ===== TOUCH/GESTURE CONTROLS =====
+let touchStartY = 0;
+let touchStartScrollY = 0;
+
+document.getElementById('scrollArea').addEventListener('touchstart', e => {
+  if (isPlaying) { togglePlay(); return; }
+  touchStartY = e.touches[0].clientY;
+  touchStartScrollY = scrollY;
+}, { passive: true });
+
+document.getElementById('scrollArea').addEventListener('touchmove', e => {
+  if (isPlaying) return;
+  const delta = touchStartY - e.touches[0].clientY;
+  scrollY = Math.max(0, touchStartScrollY + delta);
+  updateTransform();
+}, { passive: true });
+
+// Double-tap to play/pause
+let lastTap = 0;
+document.getElementById('scrollArea').addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTap < 300) { togglePlay(); }
+  lastTap = now;
+});
+
+// Keyboard controls
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  switch(e.key) {
+    case ' ': e.preventDefault(); togglePlay(); break;
+    case 'ArrowUp': changeSpeed(0.5); break;
+    case 'ArrowDown': changeSpeed(-0.5); break;
+    case 'r': case 'R': resetScroll(); break;
+    case 'm': case 'M': toggleMirror(); break;
+    case 'Escape':
+      closeEditor(); closeScripts(); closeSettings(); break;
+  }
+});
+
+// Mouse wheel for manual scroll when paused
+document.getElementById('scrollArea').addEventListener('wheel', e => {
+  if (isPlaying) return;
+  scrollY = Math.max(0, scrollY + e.deltaY);
+  updateTransform();
+}, { passive: true });
+
+// ===== INIT =====
+async function init() {
+  await openDB();
+  loadSettings();
+  
+  // Restore preferences
+  isMirror = localStorage.getItem('tp_mirror') === 'true';
+  if (isMirror) {
+    document.getElementById('mirrorBtn').classList.add('active');
+  }
+  isLight = localStorage.getItem('tp_theme') === 'light';
+  if (isLight) {
+    document.body.classList.add('light');
+    document.getElementById('themeBtn').textContent = '☀️';
+  }
+  
+  // Load last script
+  const scripts = await dbGetAll();
+  if (scripts.length > 0) {
+    currentScriptId = scripts[0].id;
+    loadScriptToPrompter(scripts[0]);
+  }
+  
+  // Speed from storage
+  const savedSpeed = localStorage.getItem('tp_speed');
+  if (savedSpeed) {
+    speed = parseFloat(savedSpeed);
+    document.getElementById('speedDisplay').textContent = speed % 1 === 0 ? speed : speed.toFixed(1);
+  }
+}
+
+// Save speed on change
+const origChangeSpeed = changeSpeed;
+changeSpeed = function(delta) {
+  origChangeSpeed(delta);
+  localStorage.setItem('tp_speed', speed);
+};
+
+init();
+</script>
+</body>
+</html>
