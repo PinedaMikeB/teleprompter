@@ -194,9 +194,9 @@ body.mirror .scroll-content{transform:scaleX(-1)}
 <!-- BOTTOM CONTROLS -->
 <div class="bottom-bar" id="bottomBar">
   <button onclick="resetScroll()" title="Reset">⏮</button>
-  <button onclick="changeSpeed(-0.5)" title="Slower">⏪</button>
+  <button onclick="nudge(-1)" title="Back">⏪</button>
   <button class="play-btn" onclick="togglePlay()" id="playBtn" title="Play/Pause">▶</button>
-  <button onclick="changeSpeed(0.5)" title="Faster">⏩</button>
+  <button onclick="nudge(1)" title="Forward">⏩</button>
   <button onclick="toggleToolbar()" title="Hide UI">👁</button>
 </div>
 
@@ -457,6 +457,15 @@ function updateTransform() {
   document.getElementById('scrollContent').style.transform =
     `translateY(${-scrollY}px)` + (isMirror ? ' scaleX(-1)' : '');
 }
+
+// Nudge forward/backward — works while playing or paused
+function nudge(direction) {
+  // Jump by ~3 lines worth of pixels based on current font size
+  const s = JSON.parse(localStorage.getItem('tp_settings') || 'null') || { fontSize: 36, lineHeight: 1.6 };
+  const jumpPx = s.fontSize * s.lineHeight * 3 * direction;
+  scrollY = Math.max(0, scrollY + jumpPx);
+  updateTransform();
+}
 </script>
 
 <script>
@@ -635,8 +644,10 @@ document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   switch(e.key) {
     case ' ': e.preventDefault(); togglePlay(); break;
-    case 'ArrowUp': changeSpeed(0.5); break;
-    case 'ArrowDown': changeSpeed(-0.5); break;
+    case 'ArrowUp': nudge(-1); break;
+    case 'ArrowDown': nudge(1); break;
+    case 'ArrowRight': nudge(1); break;
+    case 'ArrowLeft': nudge(-1); break;
     case 'r': case 'R': resetScroll(); break;
     case 'm': case 'M': toggleMirror(); break;
     case 'Escape':
