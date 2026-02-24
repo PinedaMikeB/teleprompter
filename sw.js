@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wotg-teleprompter-v1';
+const CACHE_NAME = 'wotg-teleprompter-v2';
 const ASSETS = [
   '/',
   '/index.html',

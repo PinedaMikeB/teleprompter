@@ -369,6 +369,25 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         Reset Defaults
       </button>
     </div>
+
+    <h3 style="margin-top:24px">🎮 Bluetooth Remote</h3>
+    <div style="padding:8px 0;font-size:13px;opacity:.7;line-height:1.5">
+      Pair your Desview or any Bluetooth remote/clicker in your phone's Bluetooth settings. It works automatically — the joystick/buttons control scrolling, play/pause, and more.
+    </div>
+    <div class="setting-row">
+      <label>Test Remote Keys</label>
+      <button id="keyDebugBtn" onclick="toggleKeyDebug()" 
+        style="background:rgba(255,255,255,.1);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer">
+        🎮 Start Debug
+      </button>
+    </div>
+    <div style="padding:8px 0;font-size:11px;opacity:.5;line-height:1.5">
+      <strong>Default key mapping:</strong><br>
+      Joystick ↑↓ / Arrows / Vol = Scroll forward/backward<br>
+      Center / Enter / Space = Play/Pause<br>
+      [ ] or +/- = Speed up/down<br>
+      Home / R = Reset · M = Mirror · C = Camera
+    </div>
   </div>
 </div>
 
@@ -786,19 +805,135 @@ document.getElementById('scrollArea').addEventListener('touchend', () => {
   lastTap = now;
 });
 
+// =============================================
+// BLUETOOTH REMOTE + KEYBOARD HANDLER
+// =============================================
+// Desview & common BT remotes send as HID keyboard.
+// Common mappings: joystick/dpad=arrows, center=Enter/Space,
+// volume keys, media keys, Page Up/Down, etc.
+// We also support Gamepad API for BT game controllers.
+
+// Customizable key map (stored in localStorage)
+const defaultKeyMap = {
+  // action: [list of key names that trigger it]
+  scrollForward:  ['ArrowDown','ArrowRight','PageDown','VolumeDown','AudioVolumeDown','j','J'],
+  scrollBackward: ['ArrowUp','ArrowLeft','PageUp','VolumeUp','AudioVolumeUp','k','K'],
+  playPause:      [' ','Enter','MediaPlayPause','p','P'],
+  reset:          ['Home','r','R','0'],
+  speedUp:        [']','+','='],
+  speedDown:      ['[','-','_'],
+  mirror:         ['m','M'],
+  camera:         ['c','C'],
+  record:         ['MediaRecord','F9'],
+  toggleUI:       ['h','H','F11']
+};
+
+function getKeyMap() {
+  return JSON.parse(localStorage.getItem('tp_keymap') || 'null') || {...defaultKeyMap};
+}
+
+function findAction(key) {
+  const km = getKeyMap();
+  for (const [action, keys] of Object.entries(km)) {
+    if (keys.includes(key)) return action;
+  }
+  return null;
+}
+
+function executeAction(action) {
+  switch(action) {
+    case 'scrollForward':  nudge(1); break;
+    case 'scrollBackward': nudge(-1); break;
+    case 'playPause':      togglePlay(); break;
+    case 'reset':          resetScroll(); break;
+    case 'speedUp':        changeSpeed(0.5); break;
+    case 'speedDown':      changeSpeed(-0.5); break;
+    case 'mirror':         toggleMirror(); break;
+    case 'camera':         toggleCamera(); break;
+    case 'record':         toggleRecording(); break;
+    case 'toggleUI':       toggleToolbar(); break;
+  }
+}
+
+// Key debug mode — shows what keys are being received
+let keyDebugMode = false;
+const keyDebugEl = document.createElement('div');
+keyDebugEl.id = 'keyDebug';
+keyDebugEl.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;background:rgba(0,0,0,.9);color:#4fc3f7;padding:20px 32px;border-radius:16px;font-size:18px;text-align:center;display:none;border:2px solid #4fc3f7;pointer-events:none;font-family:monospace;max-width:90vw;';
+document.body.appendChild(keyDebugEl);
+
+function showKeyDebug(e) {
+  if (!keyDebugMode) return;
+  keyDebugEl.style.display = 'block';
+  keyDebugEl.innerHTML = `
+    <div style="font-size:12px;opacity:.6;margin-bottom:6px">🎮 Key Debug Mode</div>
+    <div style="font-size:28px;margin-bottom:8px">${e.key === ' ' ? 'Space' : e.key}</div>
+    <div style="font-size:13px;opacity:.7">code: ${e.code} · keyCode: ${e.keyCode}</div>
+    <div style="font-size:13px;color:#4caf50;margin-top:6px">→ ${findAction(e.key) || 'unmapped'}</div>
+  `;
+  clearTimeout(keyDebugEl._timer);
+  keyDebugEl._timer = setTimeout(() => { keyDebugEl.style.display = 'none'; }, 2000);
+}
+
+function toggleKeyDebug() {
+  keyDebugMode = !keyDebugMode;
+  const btn = document.getElementById('keyDebugBtn');
+  if (btn) btn.classList.toggle('active', keyDebugMode);
+  if (!keyDebugMode) keyDebugEl.style.display = 'none';
+}
+
+// Main keyboard/remote handler
 document.addEventListener('keydown', e => {
+  // Skip when typing in inputs
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-  switch(e.key) {
-    case ' ': e.preventDefault(); togglePlay(); break;
-    case 'ArrowUp': case 'ArrowLeft': nudge(-1); break;
-    case 'ArrowDown': case 'ArrowRight': nudge(1); break;
-    case 'r': case 'R': resetScroll(); break;
-    case 'm': case 'M': toggleMirror(); break;
-    case 'c': case 'C': toggleCamera(); break;
-    case 'Escape': closeEditor(); closeScripts(); closeSettings(); break;
+
+  // Show debug overlay
+  showKeyDebug(e);
+
+  // Escape always closes modals
+  if (e.key === 'Escape') { closeEditor(); closeScripts(); closeSettings(); return; }
+
+  const action = findAction(e.key);
+  if (action) {
+    e.preventDefault();
+    executeAction(action);
   }
 });
 
+// Also handle volume button events that some BT remotes send
+// Volume keys on mobile may not fire keydown, so we listen for these too
+document.addEventListener('volumeupbutton', () => nudge(-1), false);
+document.addEventListener('volumedownbutton', () => nudge(1), false);
+
+// Gamepad API for BT game controllers
+let gamepadPollInterval = null;
+function startGamepadPoll() {
+  if (gamepadPollInterval) return;
+  gamepadPollInterval = setInterval(() => {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const gp of gamepads) {
+      if (!gp) continue;
+      // D-pad or analog stick
+      const axes = gp.axes;
+      if (axes[1] < -0.5) nudge(-1);  // up
+      if (axes[1] > 0.5)  nudge(1);   // down
+      // Buttons: 0=A(play), 1=B, 2=X, 3=Y
+      if (gp.buttons[0] && gp.buttons[0].pressed) togglePlay();
+      if (gp.buttons[9] && gp.buttons[9].pressed) togglePlay(); // start
+    }
+  }, 200);
+}
+
+window.addEventListener('gamepadconnected', e => {
+  console.log('Gamepad connected:', e.gamepad.id);
+  startGamepadPoll();
+});
+window.addEventListener('gamepaddisconnected', () => {
+  clearInterval(gamepadPollInterval);
+  gamepadPollInterval = null;
+});
+
+// Mouse wheel
 document.getElementById('scrollArea').addEventListener('wheel', e => {
   if (isPlaying) return;
   scrollY = Math.max(0, scrollY + e.deltaY);
