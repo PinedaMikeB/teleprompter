@@ -29,10 +29,15 @@ body.light{--bg:#f0f0f0;--text:#111;--panel:rgba(255,255,255,.9);--border:rgba(0
   width:100%;height:100%;object-fit:cover;
   transform:scaleX(-1); /* selfie mirror */
 }
+#cameraDim{
+  position:absolute;inset:0;background:rgba(0,0,0,0.5);
+  pointer-events:none;z-index:1;
+}
 body.camera-on #cameraLayer{display:block}
 body.camera-on{--bg:transparent}
 body.camera-on .scroll-content{
-  text-shadow:0 1px 8px rgba(0,0,0,.9),0 0 20px rgba(0,0,0,.6);
+  text-shadow:0 2px 12px rgba(0,0,0,1),0 0 30px rgba(0,0,0,.8),0 0 4px rgba(0,0,0,1);
+  font-weight:600;
 }
 
 /* === SCROLL AREA === */
@@ -223,6 +228,7 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
 <!-- CAMERA LAYER -->
 <div id="cameraLayer">
   <video id="cameraVideo" autoplay playsinline muted></video>
+  <div id="cameraDim"></div>
 </div>
 
 <!-- RECORDING INDICATOR -->
@@ -368,6 +374,11 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         <option value="environment">Back</option>
       </select>
     </div>
+    <div class="setting-row">
+      <label>Camera Dim</label>
+      <input type="range" min="0" max="80" value="50" id="cameraDimSlider" oninput="updateSetting('cameraDim',this.value)">
+      <span class="val" id="cameraDimVal">50%</span>
+    </div>
 
     <div style="margin-top:16px;text-align:center">
       <button class="btn-secondary" onclick="resetSettings()" style="padding:8px 20px;border:none;border-radius:8px;cursor:pointer">
@@ -458,7 +469,7 @@ let recStartTime = 0, recTimerInterval = null;
 // =============================================
 const defaults = {
   fontSize:36, lineHeight:1.6, textWidth:90, marginTop:40,
-  guide:30, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1
+  guide:30, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1, cameraDim:50
 };
 
 function loadSettings() {
@@ -493,6 +504,14 @@ function applySettings(s) {
   const nval = s.nudgeSize || 1;
   if (ns) ns.value = nval;
   if (nv) nv.textContent = nval + (nval === 1 ? ' line' : ' lines');
+  // Camera dim overlay
+  const dimVal = s.cameraDim != null ? s.cameraDim : 50;
+  const dimEl = document.getElementById('cameraDim');
+  if (dimEl) dimEl.style.background = `rgba(0,0,0,${dimVal/100})`;
+  const ds = document.getElementById('cameraDimSlider');
+  const dv = document.getElementById('cameraDimVal');
+  if (ds) ds.value = dimVal;
+  if (dv) dv.textContent = dimVal + '%';
 }
 
 function updateSetting(key, val) {
