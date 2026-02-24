@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install WOTG Teleprompter</title>
+    <meta name="theme-color" content="#4fc3f7">
+    <meta property="og:title" content="WOTG Teleprompter — Camera Teleprompter App">
+    <meta property="og:description" content="Read your script while seeing yourself on camera. Record your delivery. Free to install.">
+    <meta property="og:type" content="website">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{
+            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+            background:linear-gradient(135deg,#0a0a1a 0%,#0d1b2a 100%);
+            min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+        }
+        .container{text-align:center;max-width:420px;width:100%}
+        .icon{font-size:72px;margin-bottom:16px}
+        h1{color:#4fc3f7;font-size:28px;font-weight:800;margin-bottom:8px}
+        .subtitle{color:#94a3b8;margin-bottom:28px;font-size:15px;line-height:1.5}
+        .features{
+            display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px;text-align:left;
+        }
+        .feat{
+            background:rgba(79,195,247,.08);border:1px solid rgba(79,195,247,.15);
+            border-radius:12px;padding:12px;
+        }
+        .feat .emoji{font-size:22px;margin-bottom:4px}
+        .feat .label{color:#e0e0e0;font-size:12px;font-weight:600}
+        .install-btn{
+            display:block;width:100%;padding:18px 40px;
+            background:linear-gradient(135deg,#4fc3f7 0%,#0288d1 100%);
+            color:#000;font-size:20px;font-weight:800;text-decoration:none;
+            border-radius:16px;border:none;cursor:pointer;
+            box-shadow:0 4px 24px rgba(79,195,247,.3);margin-bottom:16px;
+            transition:transform .2s;
+        }
+        .install-btn:active{transform:scale(.97)}
+        .manual-steps{
+            background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+            border-radius:16px;padding:20px;text-align:left;display:none;
+        }
+        .manual-steps.show{display:block}
+        .manual-steps h3{color:#4fc3f7;font-size:15px;margin-bottom:14px;text-align:center}
+        .manual-step{display:flex;gap:12px;margin-bottom:14px;align-items:flex-start}
+        .step-num{
+            width:26px;height:26px;background:#4fc3f7;color:#000;border-radius:50%;
+            display:flex;align-items:center;justify-content:center;
+            font-weight:800;font-size:13px;flex-shrink:0;
+        }
+        .step-text{color:#e2e8f0;font-size:14px;line-height:1.5}
+        .step-text strong{color:#4fc3f7}
+        .highlight-icon{
+            display:inline-block;background:rgba(79,195,247,.15);
+            padding:3px 8px;border-radius:6px;font-size:16px;
+        }
+        .url-box{
+            background:rgba(0,0,0,.4);border:1px solid rgba(79,195,247,.2);
+            border-radius:10px;padding:14px;margin-top:14px;text-align:center;
+        }
+        .url-box p{color:#94a3b8;font-size:11px;margin-bottom:6px}
+        .url-box code{color:#4fc3f7;font-size:16px;font-weight:600}
+        .copy-btn{
+            background:#4fc3f7;color:#000;border:none;padding:8px 18px;
+            border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;margin-top:10px;
+        }
+        .copy-btn.copied{background:#22c55e}
+        .already-installed{
+            color:#64748b;font-size:12px;margin-top:16px;
+        }
+        .already-installed a{color:#4fc3f7}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">📜</div>
+        <h1>WOTG Teleprompter</h1>
+        <p class="subtitle">Camera teleprompter with recording.<br>Read your script while seeing yourself.</p>
+
+        <div class="features">
+            <div class="feat"><div class="emoji">📷</div><div class="label">Camera overlay</div></div>
+            <div class="feat"><div class="emoji">⏺</div><div class="label">Video recording</div></div>
+            <div class="feat"><div class="emoji">🪞</div><div class="label">Mirror mode</div></div>
+            <div class="feat"><div class="emoji">⚙️</div><div class="label">Full customization</div></div>
+        </div>
+
+        <button class="install-btn" onclick="openInBrowser()">
+            📱 Install Teleprompter App
+        </button>
+
+        <div class="manual-steps" id="manualSteps">
+            <h3>👆 Open in your Browser first</h3>
+
+            <div id="iosSteps" style="display:none;">
+                <div class="manual-step">
+                    <div class="step-num">1</div>
+                    <div class="step-text">Open this page in <strong>Safari</strong></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">2</div>
+                    <div class="step-text">Tap the <strong>Share</strong> button <span class="highlight-icon">⬆</span></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">3</div>
+                    <div class="step-text">Scroll down and tap <strong>"Add to Home Screen"</strong></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">4</div>
+                    <div class="step-text">Tap <strong>"Add"</strong> — done! 🎉</div>
+                </div>
+            </div>
+
+            <div id="androidSteps" style="display:none;">
+                <div class="manual-step">
+                    <div class="step-num">1</div>
+                    <div class="step-text">Open this page in <strong>Chrome</strong></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">2</div>
+                    <div class="step-text">Tap the <strong>⋮</strong> menu <span class="highlight-icon">⋮</span></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">3</div>
+                    <div class="step-text">Tap <strong>"Install app"</strong> or <strong>"Add to Home Screen"</strong></div>
+                </div>
+                <div class="manual-step">
+                    <div class="step-num">4</div>
+                    <div class="step-text">Tap <strong>"Install"</strong> — done! 🎉</div>
+                </div>
+            </div>
+
+            <div class="url-box">
+                <p>Or copy this link and open in your browser:</p>
+                <code id="appUrl">goteleprompter.netlify.app</code>
+                <br>
+                <button class="copy-btn" onclick="copyUrl()">📋 Copy Link</button>
+            </div>
+        </div>
+
+        <p class="already-installed">Already installed? <a href="/">Open App →</a></p>
+    </div>
+
+    <script>
+        const appUrl = 'https://goteleprompter.netlify.app';
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
+        const isIOS = /iPhone|iPad|iPod/i.test(ua);
+        const isAndroid = /Android/i.test(ua);
+        const isInAppBrowser = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line|Twitter|MicroMessenger|WeChat|Snapchat/i.test(ua);
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+
+        // If already installed and opened as PWA, go straight to app
+        if (isStandalone) { window.location.href = '/'; }
+
+        function openInBrowser() {
+            if (!isInAppBrowser) {
+                // Already in a real browser — check if we can trigger install prompt
+                if (window.deferredPrompt) {
+                    window.deferredPrompt.prompt();
+                    return;
+                }
+                // Otherwise show manual steps for this platform
+                showSteps();
+                return;
+            }
+
+            // In-app browser: show steps to open in real browser
+            showSteps();
+
+            if (isIOS) {
+                window.location.href = 'x-safari-' + appUrl;
+                setTimeout(() => {
+                    window.location.href = 'googlechrome://navigate?url=' + encodeURIComponent(appUrl);
+                }, 300);
+            } else if (isAndroid) {
+                const intentUrl = 'intent://goteleprompter.netlify.app#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(appUrl) + ';end';
+                window.location.href = intentUrl;
+            }
+        }
+
+        function showSteps() {
+            document.getElementById('manualSteps').classList.add('show');
+            if (isIOS) {
+                document.getElementById('iosSteps').style.display = 'block';
+                document.getElementById('androidSteps').style.display = 'none';
+            } else {
+                document.getElementById('iosSteps').style.display = 'none';
+                document.getElementById('androidSteps').style.display = 'block';
+            }
+        }
+
+        function copyUrl() {
+            const url = document.getElementById('appUrl').textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(showCopied).catch(() => fallbackCopy(url));
+            } else { fallbackCopy(url); }
+        }
+
+        function fallbackCopy(text) {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+            document.body.appendChild(ta); ta.focus(); ta.select();
+            try { document.execCommand('copy'); showCopied(); } catch(e) { alert('Copy: '+text); }
+            document.body.removeChild(ta);
+        }
+
+        function showCopied() {
+            const btn = document.querySelector('.copy-btn');
+            btn.textContent = '✓ Copied!'; btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = '📋 Copy Link'; btn.classList.remove('copied'); }, 2000);
+        }
+
+        // Listen for PWA install prompt
+        let deferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; });
+
+        if (isInAppBrowser) {
+            document.querySelector('.subtitle').innerHTML = 'Open in your browser to install 👇';
+        } else if (isIOS) {
+            // iOS never fires beforeinstallprompt, show steps immediately
+            showSteps();
+        }
+    </script>
+</body>
+</html>

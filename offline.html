@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WOTG Teleprompter - Offline</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui,sans-serif;background:#0a0a0a;min-height:100vh;
+          display:flex;align-items:center;justify-content:center;padding:20px;color:#fff}
+        .container{text-align:center;max-width:400px}
+        .icon{font-size:80px;margin-bottom:20px}
+        h1{color:#4fc3f7;font-size:24px;margin-bottom:10px}
+        p{color:#94a3b8;margin-bottom:20px}
+        button{padding:14px 32px;background:#4fc3f7;border:none;border-radius:12px;
+          color:#000;font-size:16px;font-weight:700;cursor:pointer}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">📡</div>
+        <h1>You're Offline</h1>
+        <p>Your scripts are still saved locally. Check your connection and try again.</p>
+        <button onclick="location.reload()">Try Again</button>
+    </div>
+</body>
+</html>

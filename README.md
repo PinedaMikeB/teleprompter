@@ -1,42 +1,40 @@
 # WOTG Teleprompter
 
-A mobile-first teleprompter web app for sermon delivery and presentations.
+A mobile-first **camera teleprompter PWA** with video recording.
+
+See yourself on camera while reading your script — like a professional teleprompter on your phone.
 
 ## Features
 
-- **📜 Script Management** — Create, edit, save, delete scripts (IndexedDB browser database)
-- **▶️ Smooth Scrolling** — Adjustable speed (0.5x to 20x) with play/pause
-- **🪞 Mirror Mode** — Flip text horizontally for beam-splitter teleprompter setups
-- **🌙/☀️ Dark/Light Mode** — Toggle themes instantly
-- **⚙️ Full Customization** — Font size, family, line height, text width, margins, colors
-- **📏 Guide Line** — Adjustable reading position guide
-- **📱 Mobile First** — Touch gestures, responsive design
-- **⌨️ Keyboard Shortcuts** — Space (play/pause), Arrow keys (speed), M (mirror), R (reset)
-- **💾 Persistent Storage** — All scripts and settings saved in browser (IndexedDB + localStorage)
-- **🚀 Netlify Ready** — Static HTML, zero dependencies, instant deploy
+- **📷 Camera Overlay** — Front/back camera as background with adjustable text opacity
+- **⏺ Video Recording** — Record yourself delivering your script (video + audio)
+- **📜 Script Management** — Create, edit, save, delete scripts (IndexedDB)
+- **▶️ Smooth Scrolling** — Adjustable speed with nudge forward/backward
+- **🪞 Mirror Mode** — Flip text for beam-splitter setups
+- **🌙/☀️ Dark/Light Mode** — Toggle themes
+- **⚙️ Full Customization** — Font, size, line height, width, margins, opacity, guide line
+- **📱 PWA** — Installable on iOS & Android, works offline
+- **🔗 Install Page** — Shareable link with step-by-step install instructions
+
+## Install
+
+Share this link: **`goteleprompter.netlify.app/install`**
 
 ## Controls
 
 | Action | Touch | Keyboard |
 |--------|-------|----------|
-| Play/Pause | Double-tap screen | Spacebar |
-| Manual scroll | Swipe up/down | Mouse wheel |
-| Speed up | ⏩ button | Arrow Up |
-| Speed down | ⏪ button | Arrow Down |
+| Play/Pause | Double-tap | Space |
+| Nudge forward | ⏩ button | Arrow Down/Right |
+| Nudge backward | ⏪ button | Arrow Up/Left |
 | Reset | ⏮ button | R |
-| Mirror toggle | 🪞 button | M |
-
-## Deploy to Netlify
-
-1. Push to GitHub
-2. Connect repo in Netlify
-3. Build command: (leave empty)
-4. Publish directory: `/`
-5. Deploy!
+| Mirror | 🪞 button | M |
+| Camera | 📷 button | C |
 
 ## Tech Stack
 
-- HTML/CSS/JavaScript (single file, no dependencies)
-- IndexedDB for script storage
-- localStorage for settings
+- Single HTML file, zero dependencies
+- IndexedDB + localStorage for persistence
+- MediaRecorder API for video capture
+- Service Worker for offline PWA
 - Netlify for hosting
