@@ -986,13 +986,58 @@ function dismissInstall() {
 }
 
 // =============================================
-// SERVICE WORKER REGISTRATION
+// =============================================
+// SERVICE WORKER + AUTO UPDATE
 // =============================================
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
-      console.log('SW registered:', reg.scope);
-    }).catch(err => console.log('SW failed:', err));
+      console.log('[App] SW registered');
+
+      // Check for updates every 60 seconds while app is open
+      setInterval(() => {
+        reg.update();
+        console.log('[App] Checking for SW update...');
+      }, 60 * 1000);
+
+      // Also check on visibility change (user switches back to app)
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          reg.update();
+          console.log('[App] Visibility check for SW update');
+        }
+      });
+
+      // When a new SW is found and waiting
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        console.log('[App] New SW found, installing...');
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version ready — tell it to activate immediately
+            console.log('[App] New version ready, activating...');
+            newSW.postMessage('SKIP_WAITING');
+          }
+        });
+      });
+    }).catch(err => console.log('[App] SW failed:', err));
+
+    // Listen for SW_UPDATED message — auto-reload the page
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data && e.data.type === 'SW_UPDATED') {
+        console.log('[App] SW updated, reloading...');
+        window.location.reload();
+      }
+    });
+
+    // When new SW takes over, reload to get fresh code
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      console.log('[App] Controller changed, reloading...');
+      window.location.reload();
+    });
   });
 }
 
