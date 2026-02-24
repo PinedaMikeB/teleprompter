@@ -346,6 +346,11 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
       <span class="val" id="textOpacityVal">92%</span>
     </div>
     <div class="setting-row">
+      <label>Nudge Step</label>
+      <input type="range" min="0.5" max="10" step="0.5" value="1" id="nudgeSizeSlider" oninput="updateSetting('nudgeSize',this.value)">
+      <span class="val" id="nudgeSizeVal">1 line</span>
+    </div>
+    <div class="setting-row">
       <label>Font Family</label>
       <select id="fontSelect" onchange="updateSetting('fontFamily',this.value)">
         <option value="Georgia, serif">Georgia</option>
@@ -453,7 +458,7 @@ let recStartTime = 0, recTimerInterval = null;
 // =============================================
 const defaults = {
   fontSize:36, lineHeight:1.6, textWidth:90, marginTop:40,
-  guide:30, fontFamily:'Georgia, serif', textOpacity:92
+  guide:30, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1
 };
 
 function loadSettings() {
@@ -482,6 +487,12 @@ function applySettings(s) {
   });
   const fs = document.getElementById('fontSelect');
   if (fs) fs.value = s.fontFamily;
+  // Nudge size slider
+  const ns = document.getElementById('nudgeSizeSlider');
+  const nv = document.getElementById('nudgeSizeVal');
+  const nval = s.nudgeSize || 1;
+  if (ns) ns.value = nval;
+  if (nv) nv.textContent = nval + (nval === 1 ? ' line' : ' lines');
 }
 
 function updateSetting(key, val) {
@@ -539,7 +550,8 @@ function changeSpeed(delta) {
 
 function nudge(dir) {
   const s = JSON.parse(localStorage.getItem('tp_settings')||'null') || defaults;
-  scrollY = Math.max(0, scrollY + s.fontSize * s.lineHeight * 3 * dir);
+  const lines = s.nudgeSize || 1; // how many lines per nudge press
+  scrollY = Math.max(0, scrollY + s.fontSize * s.lineHeight * lines * dir);
   applyTransform();
 }
 
