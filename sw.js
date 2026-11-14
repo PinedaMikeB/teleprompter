@@ -2,7 +2,7 @@
 // WOTG Teleprompter — Service Worker
 // Auto-updating, network-first for app files
 // =============================================
-const CACHE_NAME = 'wotg-tp-v5';
+const CACHE_NAME = 'wotg-tp-v6';
 
 // Core assets to pre-cache for offline
 const PRECACHE = [
@@ -55,6 +55,8 @@ self.addEventListener('fetch', e => {
   if (e.request.url.startsWith('chrome-extension')) return;
 
   const url = new URL(e.request.url);
+  // Only handle this site's own files — never cache the recording server's replies
+  if (url.origin !== self.location.origin) return;
   const isAppFile = NETWORK_FIRST.some(f => url.pathname === f || url.pathname.endsWith(f));
   const isNavigation = e.request.mode === 'navigate';
 

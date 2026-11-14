@@ -74,6 +74,17 @@ body.mirror .scroll-content{transform:scaleX(-1)}
 }
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
 .rec-timer{font-variant-numeric:tabular-nums}
+/* === CLOUD SAVE STATUS === */
+.cloud-pill{
+  position:fixed;top:48px;left:50%;transform:translateX(-50%);z-index:121;
+  display:none;max-width:92vw;text-align:center;
+  background:rgba(20,20,20,.85);color:#fff;border:1px solid rgba(255,255,255,.15);
+  padding:5px 14px;border-radius:16px;font-size:12px;font-weight:600;cursor:pointer;
+}
+.cloud-pill.show{display:block}
+.cloud-pill.warn{background:rgba(180,110,0,.92)}
+.cloud-pill.ok{background:rgba(30,130,60,.92)}
+.cloud-input{width:100%;margin-top:6px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.08);color:var(--text);font-size:13px;box-sizing:border-box}
 
 /* === TOOLBAR === */
 .toolbar{
@@ -237,6 +248,7 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
   <span>REC</span>
   <span class="rec-timer" id="recTimer">00:00</span>
 </div>
+<div class="cloud-pill" id="cloudPill"></div>
 
 <!-- GUIDE LINE -->
 <div class="guide-line" id="guideLine"></div>
@@ -380,6 +392,27 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
       <span class="val" id="cameraDimVal">50%</span>
     </div>
 
+    <h3 style="margin-top:24px">☁️ Save Recordings to Server</h3>
+    <div style="padding:4px 0 8px;font-size:12px;opacity:.7;line-height:1.5">
+      While you record, the video is sent to the server every few seconds, so long recordings (1 hour+) don't run out of phone memory. If the internet drops, pieces wait on the phone and upload later.
+    </div>
+    <div class="setting-row">
+      <label>Send to server while recording</label>
+      <input type="checkbox" id="recCloudToggle" onchange="saveCloudSettings()" style="width:22px;height:22px;accent-color:var(--accent)">
+    </div>
+    <details style="padding:4px 0;font-size:13px">
+      <summary style="cursor:pointer;opacity:.8">Server connection</summary>
+      <div style="padding-top:6px"><label style="font-size:12px;opacity:.7">Server address</label>
+        <input class="cloud-input" id="recUrlInput" placeholder="https://teleprompter.marga.biz" onchange="saveCloudSettings()" autocapitalize="off" autocorrect="off"></div>
+      <div style="padding-top:8px"><label style="font-size:12px;opacity:.7">Access code</label>
+        <input class="cloud-input" id="recTokenInput" type="password" placeholder="Paste access code" onchange="saveCloudSettings()" autocapitalize="off" autocorrect="off"></div>
+    </details>
+    <div style="display:flex;gap:8px;padding:8px 0;flex-wrap:wrap">
+      <button class="btn-secondary" onclick="testCloud()" style="padding:8px 14px;border:none;border-radius:8px;cursor:pointer">Test connection</button>
+      <button class="btn-secondary" onclick="openRecordingsList()" style="padding:8px 14px;border:none;border-radius:8px;cursor:pointer">🎬 My recordings</button>
+    </div>
+    <div id="recTestResult" style="font-size:12px;opacity:.8;min-height:16px"></div>
+
     <div style="margin-top:16px;text-align:center">
       <button class="btn-secondary" onclick="resetSettings()" style="padding:8px 20px;border:none;border-radius:8px;cursor:pointer">
         Reset Defaults
@@ -411,7 +444,9 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
 // =============================================
 // DATABASE (IndexedDB)
 // =============================================
-const DB_NAME = 'TeleprompterDB', DB_VER = 1, STORE = 'scripts';
+const DB_NAME = 'TeleprompterDB', DB_VER = 2, STORE = 'scripts';
+// Recording pieces are kept on the phone's storage (not in memory) until the server has them
+const REC_SESSIONS = 'recSessions', REC_CHUNKS = 'recChunks';
 let db;
 
 function openDB() {
@@ -421,6 +456,10 @@ function openDB() {
       const d = e.target.result;
       if (!d.objectStoreNames.contains(STORE))
         d.createObjectStore(STORE, { keyPath: 'id' }).createIndex('updated', 'updated');
+      if (!d.objectStoreNames.contains(REC_SESSIONS))
+        d.createObjectStore(REC_SESSIONS, { keyPath: 'id' });
+      if (!d.objectStoreNames.contains(REC_CHUNKS))
+        d.createObjectStore(REC_CHUNKS, { keyPath: ['recId', 'seq'] });
     };
     r.onsuccess = e => { db = e.target.result; res(db); };
     r.onerror = e => rej(e);
@@ -461,7 +500,7 @@ let speed = 3, isPlaying = false, scrollY = 0, animFrame = null, lastTime = 0;
 let currentScriptId = null, editingScriptId = null;
 let toolbarVisible = true, isMirror = false, isLight = false;
 let cameraStream = null, cameraOn = false;
-let mediaRecorder = null, recordedChunks = [], isRecording = false;
+let mediaRecorder = null, isRecording = false;
 let recStartTime = 0, recTimerInterval = null;
 
 // =============================================
@@ -658,6 +697,199 @@ async function toggleRecording() {
   }
 }
 
+// ---------------------------------------------
+// How it works: every few seconds the recorder hands us a small piece of video.
+// Each piece is saved to the phone's storage (IndexedDB), NOT kept in memory,
+// then sent to the server (Ryzen). Once the server confirms a piece, it is deleted
+// from the phone. If Wi-Fi drops, pieces wait on the phone and are sent later —
+// even after closing and reopening the app. At the end the server joins them.
+// ---------------------------------------------
+const REC_SLICE_MS = 4000;        // one piece every 4 seconds
+const REC_VIDEO_BPS = 5000000;    // ~5 Mbps → about 2.3 GB per hour
+let recId = null, recSeq = 0, recSaveChain = Promise.resolve(), recAudioStream = null, wakeLock = null;
+
+function cloudCfg() {
+  return {
+    url: (localStorage.getItem('tp_rec_url') || 'https://teleprompter.marga.biz').trim().replace(/\/+$/, ''),
+    token: (localStorage.getItem('tp_rec_token') || '').trim(),
+    on: localStorage.getItem('tp_rec_cloud') !== 'false'
+  };
+}
+function cloudEnabled() { const c = cloudCfg(); return c.on && !!c.token; }
+
+function idbReq(storeName, mode, fn) {
+  return new Promise((res, rej) => {
+    const tx = db.transaction(storeName, mode);
+    let out; const r = fn(tx.objectStore(storeName));
+    if (r) r.onsuccess = () => { out = r.result; };
+    tx.oncomplete = () => res(out); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  });
+}
+const sessPut = s => idbReq(REC_SESSIONS, 'readwrite', st => st.put(s));
+const sessGet = id => idbReq(REC_SESSIONS, 'readonly', st => st.get(id));
+const sessAll = () => idbReq(REC_SESSIONS, 'readonly', st => st.getAll());
+const sessDel = id => idbReq(REC_SESSIONS, 'readwrite', st => st.delete(id));
+const chunkPut = c => idbReq(REC_CHUNKS, 'readwrite', st => st.put(c));
+const chunkGet = (id, seq) => idbReq(REC_CHUNKS, 'readonly', st => st.get([id, seq]));
+const chunkDel = (id, seq) => idbReq(REC_CHUNKS, 'readwrite', st => st.delete([id, seq]));
+const chunkSeqs = async id => ((await idbReq(REC_CHUNKS, 'readonly', st => st.getAllKeys(IDBKeyRange.bound([id, 0], [id, Infinity])))) || []).map(k => k[1]);
+
+// ---- status pill ----
+let pillTimer = null;
+function setCloudStatus(text, kind, autoHideMs) {
+  const el = document.getElementById('cloudPill');
+  if (!el) return;
+  clearTimeout(pillTimer);
+  el.textContent = text; el.className = 'cloud-pill show ' + (kind || '');
+  if (autoHideMs) pillTimer = setTimeout(() => el.classList.remove('show'), autoHideMs);
+}
+function updateCloudBadge() {
+  const waiting = uploadQueue.length;
+  if (isRecording && recSessionCloud) setCloudStatus(waiting <= 1 ? '☁️ Saving live to server ✓' : `☁️ ${waiting} pieces waiting to upload`, waiting > 3 ? 'warn' : '');
+  else if (waiting) setCloudStatus(`☁️ Uploading… ${waiting} pieces left — keep the app open`, 'warn');
+}
+
+// ---- uploader (one piece at a time, retries forever, survives app restarts) ----
+const uploadQueue = []; let uploading = false, retryDelay = 3000, retryWake = null, recSessionCloud = false;
+function queueUpload(id, seq) {
+  if (!uploadQueue.some(([i, s]) => i === id && s === seq)) uploadQueue.push([id, seq]);
+  pumpUploads();
+}
+function waitForRetry() {
+  return new Promise(r => {
+    const done = () => { clearTimeout(t); retryWake = null; r(); };
+    const t = setTimeout(done, retryDelay); retryWake = done;
+    retryDelay = Math.min(retryDelay * 2, 30000);
+  });
+}
+window.addEventListener('online', () => retryWake && retryWake());
+
+async function uploadChunk(id, seq) {
+  const c = await chunkGet(id, seq);
+  if (!c) return 'ok'; // already uploaded earlier
+  const { url, token } = cloudCfg();
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    const r = await fetch(`${url}/chunk?id=${encodeURIComponent(id)}&seq=${seq}`, {
+      method: 'PUT', headers: { 'X-TP-Token': token }, body: c.blob, signal: ctrl.signal
+    });
+    if (r.status === 401) return 'token';
+    if (!r.ok) return 'fail';
+    await chunkDel(id, seq);
+    return 'ok';
+  } catch (e) { return 'fail'; } finally { clearTimeout(t); }
+}
+
+async function pumpUploads() {
+  if (uploading) return; uploading = true;
+  try {
+    while (uploadQueue.length) {
+      updateCloudBadge();
+      const [id, seq] = uploadQueue[0];
+      const result = await uploadChunk(id, seq);
+      if (result === 'ok') { uploadQueue.shift(); retryDelay = 3000; continue; }
+      setCloudStatus(result === 'token'
+        ? '⚠️ Server rejected the access code — check Settings. Video is safe on this phone.'
+        : `📶 No connection to server — ${uploadQueue.length} pieces safe on phone, retrying…`, 'warn');
+      await waitForRetry();
+    }
+  } finally { uploading = false; }
+  updateCloudBadge();
+  maybeFinishAll();
+}
+
+const finishingIds = new Set();
+async function maybeFinishAll() {
+  for (const s of await sessAll()) {
+    if (!s.cloud || !s.stopped || finishingIds.has(s.id)) continue;
+    if (uploadQueue.some(([i]) => i === s.id)) continue;
+    finishingIds.add(s.id);
+    finishSession(s).finally(() => finishingIds.delete(s.id));
+  }
+}
+async function finishSession(s) {
+  if (!s.count) { await sessDel(s.id); return; }
+  const { url, token } = cloudCfg();
+  setCloudStatus('☁️ Joining your video on the server…');
+  try {
+    const r = await fetch(`${url}/finish?id=${encodeURIComponent(s.id)}&total=${s.count}&ext=${s.ext}&name=${encodeURIComponent(s.name)}`,
+      { method: 'POST', headers: { 'X-TP-Token': token } });
+    const j = await r.json();
+    if (j.ok) {
+      for (const seq of await chunkSeqs(s.id)) await chunkDel(s.id, seq);
+      await sessDel(s.id);
+      setCloudStatus(`✅ Saved to server: ${j.file} (${(j.bytes / 1e6).toFixed(0)} MB)`, 'ok', 12000);
+      if (reloadPending) safeReload();
+      return;
+    }
+    if (j.missing) {
+      const local = new Set(await chunkSeqs(s.id));
+      const resend = j.missing.filter(q => local.has(q));
+      if (resend.length) { resend.forEach(q => queueUpload(s.id, q)); return; }
+      setCloudStatus(`⚠️ ${j.missing.length} pieces of "${s.name}" never reached the server and are not on the phone.`, 'warn');
+      return;
+    }
+    throw new Error(j.error || 'finish failed');
+  } catch (e) {
+    setCloudStatus('📶 Could not reach the server to finish — will retry.', 'warn');
+    setTimeout(maybeFinishAll, 15000);
+  }
+}
+
+// Picks up recordings that weren't fully uploaded (app closed, phone died, no signal)
+async function resumeRecordings() {
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+  for (const s of await sessAll()) {
+    if (s.id === recId && isRecording) continue;
+    if (!s.stopped) {
+      const seqs = await chunkSeqs(s.id);
+      s.count = Math.max(s.count || 0, seqs.length ? Math.max(...seqs) + 1 : 0);
+      s.stopped = true; await sessPut(s);
+    }
+    if (s.cloud && cloudCfg().token) {
+      (await chunkSeqs(s.id)).forEach(q => queueUpload(s.id, q));
+      maybeFinishAll();
+    } else if (!s.cloud) {
+      setCloudStatus(`💾 A recording ("${s.name}") is saved on this phone — tap here to download it`, 'warn');
+      document.getElementById('cloudPill').onclick = () => { document.getElementById('cloudPill').onclick = null; downloadLocal(s.id); };
+    }
+  }
+}
+
+// Phone-only mode (no server): joins the pieces stored on the phone and downloads the file
+async function downloadLocal(id) {
+  const s = await sessGet(id); if (!s) return;
+  const blobs = [];
+  for (const seq of await chunkSeqs(id)) { const c = await chunkGet(id, seq); if (c) blobs.push(c.blob); }
+  if (!blobs.length) { await sessDel(id); return; }
+  const blob = new Blob(blobs, { type: s.mime || 'video/mp4' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${s.name}.${s.ext}`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setCloudStatus('💾 Video downloaded', 'ok', 6000);
+  setTimeout(async () => {
+    URL.revokeObjectURL(url);
+    for (const seq of await chunkSeqs(id)) await chunkDel(id, seq);
+    await sessDel(id);
+  }, 120000);
+}
+
+async function keepScreenOn() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function releaseWakeLock() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && isRecording) keepScreenOn(); });
+
+async function recordingName() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}`;
+  let title = '';
+  try { if (currentScriptId) { const s = await dbGet(currentScriptId); title = (s && s.title) || ''; } } catch (e) {}
+  title = title.replace(/[^A-Za-z0-9 _-]/g, '').trim().slice(0, 50);
+  return title ? `${stamp} ${title}` : `${stamp} teleprompter`;
+}
+
 async function startRecording() {
   // Ensure camera is on
   if (!cameraOn) await startCamera();
@@ -665,39 +897,56 @@ async function startRecording() {
 
   try {
     // Create a combined stream: video from camera + audio from mic
-    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const combined = new MediaStream([
       ...cameraStream.getVideoTracks(),
-      ...audioStream.getAudioTracks()
+      ...recAudioStream.getAudioTracks()
     ]);
 
-    recordedChunks = [];
-    const options = { mimeType: getSupportedMime() };
+    const mime = getSupportedMime();
+    const options = { videoBitsPerSecond: REC_VIDEO_BPS };
+    if (mime) options.mimeType = mime;
     mediaRecorder = new MediaRecorder(combined, options);
+    const realMime = mediaRecorder.mimeType || mime || 'video/mp4';
+
+    recId = 'rec' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    recSeq = 0; recSaveChain = Promise.resolve();
+    recSessionCloud = cloudEnabled();
+    await sessPut({ id: recId, name: await recordingName(), mime: realMime,
+      ext: realMime.includes('mp4') ? 'mp4' : 'webm', cloud: recSessionCloud,
+      count: 0, stopped: false, created: Date.now() });
 
     mediaRecorder.ondataavailable = e => {
-      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+      if (!e.data || !e.data.size) return;
+      const id = recId, seq = recSeq++, blob = e.data;
+      recSaveChain = recSaveChain.then(async () => {
+        await chunkPut({ recId: id, seq, blob });
+        const s = await sessGet(id);
+        if (s) { s.count = Math.max(s.count || 0, seq + 1); await sessPut(s); }
+        if (s && s.cloud) queueUpload(id, seq);
+      }).catch(err => {
+        console.error('Saving piece failed:', err);
+        setCloudStatus('⚠️ Phone storage problem — a piece could not be saved. Is the phone full?', 'warn');
+      });
     };
 
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: options.mimeType });
-      const url = URL.createObjectURL(blob);
-      // Create download link
-      const a = document.createElement('a');
-      a.href = url;
-      const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-      a.download = `teleprompter-${ts}.webm`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      // Cleanup audio tracks
-      audioStream.getTracks().forEach(t => t.stop());
+    mediaRecorder.onstop = async () => {
+      if (recAudioStream) recAudioStream.getTracks().forEach(t => t.stop());
+      releaseWakeLock();
+      const id = recId;
+      await recSaveChain;
+      const s = await sessGet(id); if (!s) return;
+      s.stopped = true; await sessPut(s);
+      if (s.cloud) { updateCloudBadge(); pumpUploads(); maybeFinishAll(); }
+      else await downloadLocal(id);
     };
 
-    mediaRecorder.start(1000); // collect chunks every second
+    mediaRecorder.start(REC_SLICE_MS);
     isRecording = true;
     recStartTime = Date.now();
+    keepScreenOn();
+    if (recSessionCloud) setCloudStatus('☁️ Saving live to server ✓');
+    else setCloudStatus('💾 Saving on this phone only (server not set up in Settings)', 'warn', 6000);
 
     // UI updates
     document.getElementById('recBtn').classList.add('recording');
@@ -726,15 +975,47 @@ function stopRecording() {
 
 function updateRecTimer() {
   const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
-  const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const h = Math.floor(elapsed / 3600);
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
   const s = String(elapsed % 60).padStart(2, '0');
-  document.getElementById('recTimer').textContent = `${m}:${s}`;
+  document.getElementById('recTimer').textContent = h ? `${h}:${m}:${s}` : `${m}:${s}`;
 }
 
 function getSupportedMime() {
-  const types = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+  // MP4 first: plays everywhere (iPhone Photos, Windows, editors)
+  const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
   for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
-  return 'video/webm';
+  return '';
+}
+
+// ---- Settings: server connection ----
+function loadCloudSettings() {
+  const c = cloudCfg();
+  document.getElementById('recUrlInput').value = c.url;
+  document.getElementById('recTokenInput').value = c.token;
+  document.getElementById('recCloudToggle').checked = c.on;
+}
+function saveCloudSettings() {
+  localStorage.setItem('tp_rec_url', document.getElementById('recUrlInput').value.trim());
+  localStorage.setItem('tp_rec_token', document.getElementById('recTokenInput').value.trim());
+  localStorage.setItem('tp_rec_cloud', document.getElementById('recCloudToggle').checked ? 'true' : 'false');
+}
+async function testCloud() {
+  saveCloudSettings();
+  const out = document.getElementById('recTestResult');
+  const { url, token } = cloudCfg();
+  out.textContent = 'Checking…';
+  try {
+    const r = await fetch(`${url}/recordings`, { headers: { 'X-TP-Token': token } });
+    if (r.status === 401) { out.textContent = '❌ Wrong access code'; return; }
+    const j = await r.json();
+    out.textContent = `✅ Connected — ${j.recordings.length} recordings on the server`;
+    resumeRecordings();
+  } catch (e) { out.textContent = '❌ Cannot reach the server'; }
+}
+function openRecordingsList() {
+  const { url, token } = cloudCfg();
+  window.open(`${url}/?token=${encodeURIComponent(token)}`, '_blank');
 }
 </script>
 
@@ -1008,6 +1289,12 @@ function dismissInstall() {
 // =============================================
 // SERVICE WORKER + AUTO UPDATE
 // =============================================
+// Never reload while recording or uploading — that would cut the recording
+let reloadPending = false;
+function safeReload() {
+  if (isRecording || uploadQueue.length || finishingIds.size) { reloadPending = true; return; }
+  window.location.reload();
+}
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then(reg => {
@@ -1045,7 +1332,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', e => {
       if (e.data && e.data.type === 'SW_UPDATED') {
         console.log('[App] SW updated, reloading...');
-        window.location.reload();
+        safeReload();
       }
     });
 
@@ -1055,7 +1342,7 @@ if ('serviceWorker' in navigator) {
       if (refreshing) return;
       refreshing = true;
       console.log('[App] Controller changed, reloading...');
-      window.location.reload();
+      safeReload();
     });
   });
 }
@@ -1066,6 +1353,8 @@ if ('serviceWorker' in navigator) {
 async function init() {
   await openDB();
   loadSettings();
+  loadCloudSettings();
+  resumeRecordings();
 
   // Restore preferences
   isMirror = localStorage.getItem('tp_mirror') === 'true';
