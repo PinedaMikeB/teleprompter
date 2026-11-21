@@ -655,6 +655,7 @@ function closeSettings() { document.getElementById('settingsOverlay').classList.
 // SCROLL ENGINE
 // =============================================
 function startScroll() {
+  if (voiceOn) return; // voice follow is in charge of moving the text
   lastTime = performance.now();
   function step(now) {
     if (!isPlaying) return;
@@ -690,6 +691,7 @@ function changeSpeed(delta) {
 }
 
 function nudge(dir) {
+  if (voiceOn) { voiceNudge(dir); return; }
   const s = JSON.parse(localStorage.getItem('tp_settings')||'null') || defaults;
   const lines = s.nudgeSize || 1; // how many lines per nudge press
   scrollY = Math.max(0, scrollY + s.fontSize * s.lineHeight * lines * dir);
@@ -826,9 +828,22 @@ function voiceStartListening() {
 
 function toggleVoiceFollow() { voiceOn ? stopVoiceFollow() : startVoiceFollow(); }
 
+// Clicker up/down while voice follow is on: jump one line and tell voice follow where you are
+function voiceNudge(dir) {
+  if (!scriptWords.length) return;
+  const lineTop = i => Math.round(scriptWords[i].el.getBoundingClientRect().top);
+  let i = Math.min(Math.max(0, voiceIdx), scriptWords.length - 1);
+  const cur = lineTop(i);
+  if (dir > 0) { while (i < scriptWords.length - 1 && lineTop(i) <= cur) i++; }
+  else { while (i > 0 && lineTop(i) >= cur) i--; const t = lineTop(i); while (i > 0 && lineTop(i - 1) === t) i--; }
+  voiceIdx = i;
+  scriptWords.forEach((w, k) => w.el.classList.toggle('read', k < i));
+  voiceMoveTo(Math.max(0, i - 1)); voiceIdx = i;
+}
+
 function startVoiceFollow() {
   if (!scriptWords.length) { setCloudStatus('Load a script first', 'warn', 4000); return; }
-  if (isPlaying) { isPlaying = false; stopScroll(); }
+  isPlaying = false; stopScroll(); // auto-scroll off — voice follow takes over
   voiceOn = true; voicePaused = false;
   // continue from whatever is currently on the blue line
   const guideY = document.getElementById('guideLine').getBoundingClientRect().top;
@@ -1513,7 +1528,7 @@ document.getElementById('scrollArea').addEventListener('touchstart', e => {
 }, { passive: true });
 
 document.getElementById('scrollArea').addEventListener('touchmove', e => {
-  if (isPlaying) return;
+  if (isPlaying || voiceOn) return;
   scrollY = Math.max(0, touchStartScrollY + (touchStartY - e.touches[0].clientY));
   applyTransform();
 }, { passive: true });
@@ -1667,7 +1682,7 @@ document.getElementById('scrollArea').addEventListener('pointerup', e => {
 
 // Mouse wheel
 document.getElementById('scrollArea').addEventListener('wheel', e => {
-  if (isPlaying) return;
+  if (isPlaying || voiceOn) return; // a light touch on the Magic Mouse must not move the text
   scrollY = Math.max(0, scrollY + e.deltaY);
   applyTransform();
 }, { passive: true });
