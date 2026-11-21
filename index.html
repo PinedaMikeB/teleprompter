@@ -927,6 +927,14 @@ async function resumeRecordings() {
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
   for (const s of await sessAll()) {
     if (s.id === recId && isRecording) continue;
+    // Already saved/downloaded: the pieces are kept as a safety backup for 2 days, then cleared
+    if (s.savedAt) {
+      if (Date.now() - s.savedAt > 2 * 24 * 3600 * 1000) {
+        for (const seq of await chunkSeqs(s.id)) await chunkDel(s.id, seq);
+        await sessDel(s.id);
+      }
+      continue;
+    }
     if (!s.stopped) {
       const seqs = await chunkSeqs(s.id);
       s.count = Math.max(s.count || 0, seqs.length ? Math.max(...seqs) + 1 : 0);
@@ -936,8 +944,12 @@ async function resumeRecordings() {
       (await chunkSeqs(s.id)).forEach(q => queueUpload(s.id, q));
       maybeFinishAll();
     } else if (!s.cloud) {
-      setCloudStatus(`💾 A recording ("${s.name}") is saved on this phone — tap here to download it`, 'warn');
-      document.getElementById('cloudPill').onclick = () => { document.getElementById('cloudPill').onclick = null; downloadLocal(s.id); };
+      setCloudStatus(`💾 A recording ("${s.name}") was rescued — tap here to save it`, 'warn');
+      document.getElementById('cloudPill').onclick = async () => {
+        document.getElementById('cloudPill').onclick = null;
+        if (FS_SUPPORTED) await ensureSaveFolderPermission();
+        downloadLocal(s.id);
+      };
     }
   }
 }
@@ -998,23 +1010,21 @@ async function downloadLocal(id) {
   if (!blobs.length) { await sessDel(id); return; }
   const blob = new Blob(blobs, { type: s.mime || 'video/mp4' });
   const fname = `${s.name}.${s.ext}`;
+  // Pieces are NOT deleted right away: they stay as a backup for 2 days (see resumeRecordings)
+  const markSaved = async () => { const cur = await sessGet(id); if (cur) { cur.savedAt = Date.now(); await sessPut(cur); } };
   if (await saveToFolder(blob, fname)) {
     const h = await fsGetDir();
     setCloudStatus(`💾 Saved to ${h ? h.name : 'your folder'}`, 'ok', 6000);
-    for (const seq of await chunkSeqs(id)) await chunkDel(id, seq);
-    await sessDel(id);
+    await markSaved();
     return;
   }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `${s.name}.${s.ext}`;
+  a.href = url; a.download = fname;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setCloudStatus('💾 Video downloaded', 'ok', 6000);
-  setTimeout(async () => {
-    URL.revokeObjectURL(url);
-    for (const seq of await chunkSeqs(id)) await chunkDel(id, seq);
-    await sessDel(id);
-  }, 120000);
+  setCloudStatus('💾 Video downloaded (to Downloads)', 'ok', 6000);
+  await markSaved();
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
 }
 
 async function keepScreenOn() {
@@ -1022,6 +1032,8 @@ async function keepScreenOn() {
 }
 function releaseWakeLock() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && isRecording) keepScreenOn(); });
+// Warn before closing/reloading the app in the middle of a recording
+window.addEventListener('beforeunload', e => { if (isRecording) { e.preventDefault(); e.returnValue = ''; } });
 
 async function recordingName() {
   const d = new Date(), p = n => String(n).padStart(2, '0');
@@ -1084,12 +1096,24 @@ async function startRecording() {
       else await downloadLocal(id);
     };
 
+    // If the camera or mic disconnects, stop cleanly so everything recorded so far is saved
+    combined.getTracks().forEach(t => t.addEventListener('ended', () => {
+      if (isRecording) {
+        stopRecording();
+        setCloudStatus('⚠️ Camera or mic disconnected — recording stopped and saved', 'warn');
+      }
+    }));
+
     mediaRecorder.start(REC_SLICE_MS);
     isRecording = true;
     recStartTime = Date.now();
     keepScreenOn();
     if (recSessionCloud) setCloudStatus('☁️ Saving live to server ✓');
-    else setCloudStatus('💾 Saving on this phone only (server not set up in Settings)', 'warn', 6000);
+    else {
+      const dir = FS_SUPPORTED ? await fsGetDir() : null;
+      if (dir) setCloudStatus(`💾 Recording — backup saved every 4 sec, will save to "${dir.name}"`, 'ok', 6000);
+      else setCloudStatus('💾 Saving on this device only (server not set up in Settings)', 'warn', 6000);
+    }
 
     // UI updates
     document.getElementById('recBtn').classList.add('recording');

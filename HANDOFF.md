@@ -21,6 +21,13 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   pressed. If no folder/permission, it falls back to the normal download to Downloads.
   Only used when "Send to server" is off. Not shown on iPhone (Safari can't do this).
   Cache bumped to `wotg-tp-v8`.
+- **Recording protection (v9):**
+  - Pieces saved every 4 s to the device's storage are now kept as a backup for 2 days
+    after the file is saved/downloaded (`savedAt` on the session), instead of deleted.
+  - If the app/computer crashes mid-recording, reopening shows "recording was rescued —
+    tap here to save it" (asks folder permission on that tap, then saves).
+  - Camera or mic unplugged → recording stops cleanly and saves what was recorded.
+  - Closing/reloading the app while recording shows a "Leave site?" warning.
 
 ## Live-save recordings to the server (added Nov 14, 2026)
 
