@@ -1067,7 +1067,14 @@ async function recordingName() {
 }
 
 async function startRecording() {
-  if (FS_SUPPORTED) await ensureSaveFolderPermission();
+  if (FS_SUPPORTED) {
+    // First time on this computer: ask where to save (pick Raw Videos once; it's remembered)
+    if (!(await fsGetDir())) {
+      setCloudStatus('📁 Pick the folder to save videos in (e.g. Raw Videos) — only once', 'warn', 8000);
+      await chooseSaveFolder();
+    }
+    await ensureSaveFolderPermission();
+  }
   // Ensure camera is on
   if (!cameraOn) await startCamera();
   if (!cameraStream) return;
@@ -1432,6 +1439,15 @@ window.addEventListener('gamepadconnected', e => {
 window.addEventListener('gamepaddisconnected', () => {
   clearInterval(gamepadPollInterval);
   gamepadPollInterval = null;
+});
+
+// Mouse click (or Magic Mouse tap) anywhere on the text = play/pause
+document.getElementById('scrollArea').addEventListener('pointerup', e => {
+  if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  if (e.target.closest('button, a, input, select, textarea')) return;
+  const sel = window.getSelection && window.getSelection();
+  if (sel && String(sel).length) return; // was selecting text, not tapping
+  togglePlay();
 });
 
 // Mouse wheel
