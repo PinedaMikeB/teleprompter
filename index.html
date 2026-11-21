@@ -407,6 +407,10 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         <option value="12">+12 dB</option>
       </select>
     </div>
+    <div class="setting-row" id="saveFolderRow" style="display:none">
+      <label>Save videos to</label>
+      <button class="btn-secondary" onclick="chooseSaveFolder()" style="padding:6px 12px;border:none;border-radius:8px;cursor:pointer" id="saveFolderBtn">📁 Choose folder</button>
+    </div>
 
     <h3 style="margin-top:24px">☁️ Save Recordings to Server</h3>
     <div style="padding:4px 0 8px;font-size:12px;opacity:.7;line-height:1.5">
@@ -939,12 +943,68 @@ async function resumeRecordings() {
 }
 
 // Phone-only mode (no server): joins the pieces stored on the phone and downloads the file
+// ---- Save folder (computer only: Chrome/Edge). The chosen folder is remembered;
+// Chrome asks once per session to allow saving there (done when you press Record).
+const FS_SUPPORTED = 'showDirectoryPicker' in window;
+function fsDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('tp-fs', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('h');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function fsGetDir() {
+  try { const db = await fsDB(); return await new Promise(res => {
+    const q = db.transaction('h').objectStore('h').get('saveDir'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); });
+  } catch (e) { return null; }
+}
+async function fsSetDir(h) {
+  const db = await fsDB();
+  await new Promise(res => { const t = db.transaction('h', 'readwrite'); t.objectStore('h').put(h, 'saveDir'); t.oncomplete = res; });
+}
+async function chooseSaveFolder() {
+  try {
+    const h = await window.showDirectoryPicker({ id: 'tp-save', mode: 'readwrite' });
+    await fsSetDir(h); showSaveFolder();
+  } catch (e) { /* cancelled */ }
+}
+async function showSaveFolder() {
+  if (!FS_SUPPORTED) return;
+  document.getElementById('saveFolderRow').style.display = '';
+  const h = await fsGetDir();
+  document.getElementById('saveFolderBtn').textContent = h ? `📁 ${h.name}` : '📁 Choose folder';
+}
+// Called on Record press (a click), so Chrome may show its "allow" prompt.
+async function ensureSaveFolderPermission() {
+  const h = await fsGetDir(); if (!h) return;
+  try {
+    if ((await h.queryPermission({ mode: 'readwrite' })) !== 'granted') await h.requestPermission({ mode: 'readwrite' });
+  } catch (e) {}
+}
+async function saveToFolder(blob, filename) {
+  const h = await fsGetDir(); if (!h) return false;
+  try {
+    if ((await h.queryPermission({ mode: 'readwrite' })) !== 'granted') return false;
+    const fh = await h.getFileHandle(filename, { create: true });
+    const w = await fh.createWritable(); await w.write(blob); await w.close();
+    return true;
+  } catch (e) { console.error('Save to folder failed', e); return false; }
+}
+
 async function downloadLocal(id) {
   const s = await sessGet(id); if (!s) return;
   const blobs = [];
   for (const seq of await chunkSeqs(id)) { const c = await chunkGet(id, seq); if (c) blobs.push(c.blob); }
   if (!blobs.length) { await sessDel(id); return; }
   const blob = new Blob(blobs, { type: s.mime || 'video/mp4' });
+  const fname = `${s.name}.${s.ext}`;
+  if (await saveToFolder(blob, fname)) {
+    const h = await fsGetDir();
+    setCloudStatus(`💾 Saved to ${h ? h.name : 'your folder'}`, 'ok', 6000);
+    for (const seq of await chunkSeqs(id)) await chunkDel(id, seq);
+    await sessDel(id);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `${s.name}.${s.ext}`;
@@ -973,6 +1033,7 @@ async function recordingName() {
 }
 
 async function startRecording() {
+  if (FS_SUPPORTED) await ensureSaveFolderPermission();
   // Ensure camera is on
   if (!cameraOn) await startCamera();
   if (!cameraStream) return;
@@ -1438,6 +1499,7 @@ async function init() {
   loadCloudSettings();
   document.getElementById('micBoostSelect').value = localStorage.getItem('tp_mic_boost') || '6';
   loadMics();
+  showSaveFolder();
   resumeRecordings();
 
   // Restore preferences

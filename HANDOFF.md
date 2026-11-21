@@ -15,6 +15,12 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
 - New Settings: **Microphone** (pick Yeti etc., saved as `tp_mic`) and **Mic Boost**
   (Off / +3 / +6 / +9 / +12 dB, saved as `tp_mic_boost`).
 - Service worker cache bumped to `wotg-tp-v7` so phones pick up the update.
+- **Save folder (computer only, Chrome/Edge):** Settings → "Save videos to" → 📁 pick a
+  folder (Mike uses `/Volumes/Wotg Drive Mike/Raw Videos`, same as OBS). The folder is
+  remembered (IndexedDB `tp-fs`); Chrome may ask "Allow" once per session when Record is
+  pressed. If no folder/permission, it falls back to the normal download to Downloads.
+  Only used when "Send to server" is off. Not shown on iPhone (Safari can't do this).
+  Cache bumped to `wotg-tp-v8`.
 
 ## Live-save recordings to the server (added Nov 14, 2026)
 
