@@ -391,6 +391,22 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
       <input type="range" min="0" max="80" value="50" id="cameraDimSlider" oninput="updateSetting('cameraDim',this.value)">
       <span class="val" id="cameraDimVal">50%</span>
     </div>
+    <div class="setting-row">
+      <label>Microphone</label>
+      <select id="micSelect" onfocus="loadMics()" onchange="localStorage.setItem('tp_mic', this.value)">
+        <option value="">Default mic</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label>Mic Boost</label>
+      <select id="micBoostSelect" onchange="localStorage.setItem('tp_mic_boost', this.value)">
+        <option value="0">Off</option>
+        <option value="3">+3 dB</option>
+        <option value="6">+6 dB</option>
+        <option value="9">+9 dB</option>
+        <option value="12">+12 dB</option>
+      </select>
+    </div>
 
     <h3 style="margin-top:24px">☁️ Save Recordings to Server</h3>
     <div style="padding:4px 0 8px;font-size:12px;opacity:.7;line-height:1.5">
@@ -656,7 +672,7 @@ async function startCamera(facingMode) {
   try {
     if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); }
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facingMode, width:{ideal:1280}, height:{ideal:720} },
+      video: { facingMode: facingMode, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30} },
       audio: false
     });
     cameraStream = stream;
@@ -705,8 +721,74 @@ async function toggleRecording() {
 // even after closing and reopening the app. At the end the server joins them.
 // ---------------------------------------------
 const REC_SLICE_MS = 4000;        // one piece every 4 seconds
-const REC_VIDEO_BPS = 5000000;    // ~5 Mbps → about 2.3 GB per hour
+const REC_VIDEO_BPS = 8000000;    // ~8 Mbps (1080p, like OBS) → about 3.6 GB per hour
+const REC_AUDIO_BPS = 192000;     // 192 kbps stereo AAC/Opus (studio quality voice)
 let recId = null, recSeq = 0, recSaveChain = Promise.resolve(), recAudioStream = null, wakeLock = null;
+let recAudioCtx = null;
+
+// Mic list for Settings → Microphone (names only show after mic permission is given once)
+async function loadMics() {
+  try {
+    const sel = document.getElementById('micSelect');
+    const saved = localStorage.getItem('tp_mic') || '';
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+    sel.innerHTML = '<option value="">Default mic</option>' +
+      devs.filter(d => d.deviceId && d.deviceId !== 'default')
+          .map(d => `<option value="${d.deviceId}">${(d.label || 'Microphone').replace(/</g, '')}</option>`).join('');
+    sel.value = devs.some(d => d.deviceId === saved) ? saved : '';
+  } catch (e) { console.warn('Mic list failed', e); }
+}
+
+// Clean, studio-style mic: no phone-call processing (echo cancel / auto volume /
+// noise gate all make voices sound thin and "pumping"), 48 kHz, stereo out,
+// plus optional boost and a gentle compressor so the level stays even (like OBS).
+async function openRecordingAudio() {
+  const micId = localStorage.getItem('tp_mic') || '';
+  const constraints = {
+    channelCount: { ideal: 2 },
+    sampleRate: { ideal: 48000 },
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
+  if (micId) constraints.deviceId = { exact: micId };
+  let raw;
+  try { raw = await navigator.mediaDevices.getUserMedia({ audio: constraints }); }
+  catch (e) { delete constraints.deviceId; raw = await navigator.mediaDevices.getUserMedia({ audio: constraints }); }
+
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx({ sampleRate: 48000 });
+    if (ctx.state === 'suspended') await ctx.resume();
+    const src = ctx.createMediaStreamSource(raw);
+    const boostDb = parseFloat(localStorage.getItem('tp_mic_boost') || '6');
+    const gain = ctx.createGain();
+    gain.gain.value = Math.pow(10, boostDb / 20);
+    // mono mic → copied to both left and right
+    gain.channelCount = 2; gain.channelCountMode = 'explicit'; gain.channelInterpretation = 'speakers';
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 4;
+    comp.attack.value = 0.006; comp.release.value = 0.2;
+    const dest = ctx.createMediaStreamDestination();
+    dest.channelCount = 2;
+    src.connect(gain); gain.connect(comp); comp.connect(dest);
+    recAudioCtx = ctx;
+    // keep the raw tracks so we can stop the mic later
+    dest.stream._raw = raw;
+    return dest.stream;
+  } catch (e) {
+    console.warn('Audio processing unavailable, using raw mic', e);
+    return raw;
+  }
+}
+
+function closeRecordingAudio() {
+  if (recAudioStream) {
+    recAudioStream.getTracks().forEach(t => t.stop());
+    if (recAudioStream._raw) recAudioStream._raw.getTracks().forEach(t => t.stop());
+  }
+  if (recAudioCtx) { try { recAudioCtx.close(); } catch (e) {} recAudioCtx = null; }
+}
 
 function cloudCfg() {
   return {
@@ -897,14 +979,14 @@ async function startRecording() {
 
   try {
     // Create a combined stream: video from camera + audio from mic
-    recAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recAudioStream = await openRecordingAudio();
     const combined = new MediaStream([
       ...cameraStream.getVideoTracks(),
       ...recAudioStream.getAudioTracks()
     ]);
 
     const mime = getSupportedMime();
-    const options = { videoBitsPerSecond: REC_VIDEO_BPS };
+    const options = { videoBitsPerSecond: REC_VIDEO_BPS, audioBitsPerSecond: REC_AUDIO_BPS };
     if (mime) options.mimeType = mime;
     mediaRecorder = new MediaRecorder(combined, options);
     const realMime = mediaRecorder.mimeType || mime || 'video/mp4';
@@ -931,7 +1013,7 @@ async function startRecording() {
     };
 
     mediaRecorder.onstop = async () => {
-      if (recAudioStream) recAudioStream.getTracks().forEach(t => t.stop());
+      closeRecordingAudio();
       releaseWakeLock();
       const id = recId;
       await recSaveChain;
@@ -1354,6 +1436,8 @@ async function init() {
   await openDB();
   loadSettings();
   loadCloudSettings();
+  document.getElementById('micBoostSelect').value = localStorage.getItem('tp_mic_boost') || '6';
+  loadMics();
   resumeRecordings();
 
   // Restore preferences

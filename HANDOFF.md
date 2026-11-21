@@ -1,5 +1,21 @@
 # HANDOFF — WOTG Teleprompter
 
+## Studio-quality audio + 1080p (added Nov 21, 2026)
+
+**Problem:** recordings had thin, quiet, mono sound. The app asked the browser for a
+plain mic (`audio: true`), which turns on "phone call" processing (echo cancel, noise
+gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
+
+**Now (matches the OBS setup):**
+- Mic opened with echo cancel / noise suppression / auto gain **off**, 48 kHz, stereo.
+- Sound goes through a small Web Audio chain: Mic Boost (default +6 dB) → compressor
+  → stereo output (a mono mic is copied to both left and right).
+- Audio recorded at 192 kbps (`REC_AUDIO_BPS`).
+- Camera asks for 1920×1080 at 30 fps; video bitrate 8 Mbps (`REC_VIDEO_BPS`) ≈ 3.6 GB/hour.
+- New Settings: **Microphone** (pick Yeti etc., saved as `tp_mic`) and **Mic Boost**
+  (Off / +3 / +6 / +9 / +12 dB, saved as `tp_mic_boost`).
+- Service worker cache bumped to `wotg-tp-v7` so phones pick up the update.
+
 ## Live-save recordings to the server (added Nov 14, 2026)
 
 **Problem:** the app kept the whole video in the iPhone's memory until Stop. A 1-hour
