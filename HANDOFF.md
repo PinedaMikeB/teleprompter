@@ -30,6 +30,15 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   Best launched as a bare app window via `/Volumes/Wotg Drive Mike/obs/Open Teleprompter.command`
   (`Chrome --app=...`, no tabs/address bar). Toolbar ⛶ button (v12): in a tab it reopens
   the app in a small pop-up window (no tabs); in its own window it toggles full screen.
+- **v13 Voice follow (🎤 button / V key):** browser speech recognition (Chrome/Safari, needs
+  internet) listens while you read; the script is split into word spans (`renderScriptWords`),
+  the last ~6 heard words are matched (typo-tolerant) against the next ~80 script words
+  (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
+  dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
+  "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v13 Reading line at the top:** default Guide 3% / Top Margin 10%, one-time migration
+  (`tp_guide_top`); `placeGuide()` keeps the blue line just below the toolbar (or at the very
+  top when the toolbar is hidden with H).
 - **Recording protection (v9):**
   - Pieces saved every 4 s to the device's storage are now kept as a backup for 2 days
     after the file is saved/downloaded (`savedAt` on the session), instead of deleted.

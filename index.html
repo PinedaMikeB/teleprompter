@@ -54,6 +54,10 @@ body.camera-on .scroll-content{
 /* Mirror text */
 body.mirror .scroll-content{transform:scaleX(-1)}
 
+/* Voice follow: words already read get dimmer */
+body.voice-on .scroll-content .w.read{opacity:.4;transition:opacity .3s}
+#voiceBtn.active{background:#e53935 !important}
+
 /* === GUIDE LINE === */
 .guide-line{
   position:fixed;left:0;right:0;height:2px;background:var(--accent);
@@ -276,6 +280,7 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
   <button onclick="toggleCamera()" id="cameraBtn" title="Camera">📷</button>
   <button onclick="toggleMirror()" id="mirrorBtn" title="Mirror">🪞</button>
   <button onclick="toggleTheme()" id="themeBtn" title="Theme">🌙</button>
+  <button onclick="toggleVoiceFollow()" id="voiceBtn" title="Voice follow: scrolls as you read (V)">🎤</button>
   <button onclick="openOwnWindow()" id="windowBtn" title="Open in its own window (no browser tabs)">⛶</button>
   <button onclick="openSettings()" title="Settings">⚙️</button>
 </div>
@@ -351,12 +356,12 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
     </div>
     <div class="setting-row">
       <label>Top Margin</label>
-      <input type="range" min="5" max="60" value="40" id="marginTopSlider" oninput="updateSetting('marginTop',this.value)">
+      <input type="range" min="0" max="60" value="10" id="marginTopSlider" oninput="updateSetting('marginTop',this.value)">
       <span class="val" id="marginTopVal">40%</span>
     </div>
     <div class="setting-row">
       <label>Guide Position</label>
-      <input type="range" min="10" max="60" value="30" id="guideSlider" oninput="updateSetting('guide',this.value)">
+      <input type="range" min="0" max="60" value="3" id="guideSlider" oninput="updateSetting('guide',this.value)">
       <span class="val" id="guideVal">30%</span>
     </div>
     <div class="setting-row">
@@ -406,6 +411,14 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         <option value="6">+6 dB</option>
         <option value="9">+9 dB</option>
         <option value="12">+12 dB</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label>🎤 Voice follow language</label>
+      <select id="voiceLangSelect" onchange="localStorage.setItem('tp_voice_lang', this.value)">
+        <option value="auto">Auto (from script)</option>
+        <option value="fil-PH">Filipino / Taglish</option>
+        <option value="en-US">English</option>
       </select>
     </div>
     <div class="setting-row">
@@ -535,12 +548,27 @@ let recStartTime = 0, recTimerInterval = null;
 // SETTINGS
 // =============================================
 const defaults = {
-  fontSize:36, lineHeight:1.6, textWidth:90, marginTop:40,
-  guide:30, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1, cameraDim:50
+  fontSize:36, lineHeight:1.6, textWidth:90, marginTop:10,
+  guide:3, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1, cameraDim:50
 };
 
+// Reading (blue) line: never hidden behind the toolbar; at the very top = closest to the camera
+function placeGuide(s) {
+  s = s || JSON.parse(localStorage.getItem('tp_settings')||'null') || defaults;
+  const tb = document.getElementById('toolbar');
+  const below = (tb && !tb.classList.contains('hidden')) ? tb.offsetHeight + 6 : 6;
+  document.getElementById('guideLine').style.top = `max(${s.guide}%, ${below}px)`;
+}
+window.addEventListener('resize', () => placeGuide());
+
 function loadSettings() {
-  const s = JSON.parse(localStorage.getItem('tp_settings')||'null') || {...defaults};
+  let s = JSON.parse(localStorage.getItem('tp_settings')||'null') || {...defaults};
+  // one-time move of the reading line to the top (near the camera) — Nov 2026
+  if (!localStorage.getItem('tp_guide_top')) {
+    s.guide = 3; s.marginTop = 10;
+    localStorage.setItem('tp_settings', JSON.stringify(s));
+    localStorage.setItem('tp_guide_top', '1');
+  }
   applySettings(s); return s;
 }
 
@@ -553,7 +581,7 @@ function applySettings(s) {
   el.style.fontFamily = s.fontFamily;
   el.style.opacity = (s.textOpacity||92)/100;
   document.documentElement.style.setProperty('--text-opacity', (s.textOpacity||92)/100);
-  document.getElementById('guideLine').style.top = s.guide+'%';
+  placeGuide(s);
 
   // Update UI controls
   const map = {fontSize:'px',lineHeight:'',textWidth:'%',marginTop:'%',guide:'%',textOpacity:'%'};
@@ -642,6 +670,7 @@ function startScroll() {
 function stopScroll() { if (animFrame) cancelAnimationFrame(animFrame); }
 
 function togglePlay() {
+  if (voiceOn) { toggleVoicePause(); return; }
   isPlaying = !isPlaying;
   document.getElementById('playBtn').textContent = isPlaying ? '⏸' : '▶';
   if (isPlaying) startScroll(); else stopScroll();
@@ -649,6 +678,7 @@ function togglePlay() {
 
 function resetScroll() {
   isPlaying = false; stopScroll(); scrollY = 0;
+  if (typeof scriptWords !== 'undefined') { voiceIdx = 0; voiceTarget = 0; scriptWords.forEach(w => w.el.classList.remove('read')); }
   document.getElementById('playBtn').textContent = '▶';
   applyTransform();
 }
@@ -672,6 +702,162 @@ function applyTransform() {
 }
 
 // =============================================
+// VOICE FOLLOW — listens to you read and keeps the words you're saying on the blue line.
+// Uses the browser's speech recognition (Chrome/Safari; needs internet). Works in
+// Filipino/Taglish and English. Never moves backward unless it hears a clear match.
+// =============================================
+let voiceOn = false, voicePaused = false, voiceRec = null, voiceIdx = 0, voiceAnim = null, voiceTarget = 0;
+let scriptWords = []; // [{el, n}] n = normalized word
+
+function normWord(w) {
+  return w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function renderScriptWords(el, text) {
+  el.innerHTML = '';
+  scriptWords = [];
+  const frag = document.createDocumentFragment();
+  for (const part of String(text || '').split(/(\s+)/)) {
+    if (!part) continue;
+    if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); continue; }
+    const span = document.createElement('span');
+    span.className = 'w'; span.textContent = part;
+    frag.appendChild(span);
+    const n = normWord(part);
+    if (n) scriptWords.push({ el: span, n });
+  }
+  el.appendChild(frag);
+  voiceIdx = 0;
+}
+
+function scriptLang() {
+  const pick = localStorage.getItem('tp_voice_lang') || 'auto';
+  if (pick !== 'auto') return pick;
+  const tl = new Set(['ang','ng','mga','sa','ay','na','at','ko','mo','ito','kayo','natin','hindi','po','lang','kung','may']);
+  let hits = 0; const sample = scriptWords.slice(0, 300);
+  sample.forEach(w => { if (tl.has(w.n)) hits++; });
+  return sample.length && hits / sample.length > 0.08 ? 'fil-PH' : 'en-US';
+}
+
+// small typo-tolerant compare (speech engines often spell words slightly differently)
+function wordsMatch(a, b) {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  let diff = 0, i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++diff > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return diff + (a.length - i) + (b.length - j) <= 1;
+}
+
+// Find where in the script the last few spoken words are
+function locateSpoken(spoken) {
+  if (!spoken.length || !scriptWords.length) return -1;
+  const tail = spoken.slice(-6);
+  const from = Math.max(0, voiceIdx - 8), to = Math.min(scriptWords.length - 1, voiceIdx + 80);
+  let best = -1, bestScore = 0;
+  for (let end = from; end <= to; end++) {
+    let score = 0, s = tail.length - 1, k = end;
+    while (s >= 0 && k >= 0 && k > end - 10) {
+      if (wordsMatch(tail[s], scriptWords[k].n)) { score++; s--; k--; }
+      else { k--; } // script word skipped by the speech engine
+      if (end - k > tail.length + 3) break;
+    }
+    // prefer positions close to where we are (avoid jumping to a repeated phrase far away)
+    const dist = Math.abs(end - voiceIdx);
+    const adj = score - dist / 200;
+    if (adj > bestScore) { bestScore = adj; best = end; }
+  }
+  const needed = tail.length >= 3 ? 2 : 1;
+  if (bestScore < needed) return -1;
+  if (best < voiceIdx - 1 && bestScore < 3) return -1; // only go back on a strong match
+  return best;
+}
+
+function voiceMoveTo(idx) {
+  idx = Math.max(0, Math.min(scriptWords.length - 1, idx));
+  for (let i = Math.min(voiceIdx, idx); i < scriptWords.length && i <= Math.max(voiceIdx, idx); i++) {
+    scriptWords[i].el.classList.toggle('read', i <= idx);
+  }
+  voiceIdx = idx + 1;
+  // put the line with this word just under the blue guide line
+  const guideY = document.getElementById('guideLine').getBoundingClientRect().top;
+  const r = scriptWords[idx].el.getBoundingClientRect();
+  voiceTarget = Math.max(0, scrollY + (r.top - guideY) - r.height * 0.15);
+  if (!voiceAnim) voiceAnim = requestAnimationFrame(voiceGlide);
+}
+
+function voiceGlide() {
+  const d = voiceTarget - scrollY;
+  if (Math.abs(d) < 0.5) { scrollY = voiceTarget; applyTransform(); voiceAnim = null; return; }
+  scrollY += d * 0.12; // smooth glide
+  applyTransform();
+  voiceAnim = requestAnimationFrame(voiceGlide);
+}
+
+function voiceStartListening() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setCloudStatus('Voice follow needs Chrome or Safari', 'warn', 6000); return false; }
+  voiceRec = new SR();
+  voiceRec.lang = scriptLang();
+  voiceRec.continuous = true;
+  voiceRec.interimResults = true;
+  voiceRec.maxAlternatives = 1;
+  voiceRec.onresult = e => {
+    // use the newest ~8 words heard (final + in-progress)
+    let txt = '';
+    for (let i = Math.max(0, e.results.length - 2); i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
+    const spoken = txt.split(/\s+/).map(normWord).filter(Boolean).slice(-8);
+    const at = locateSpoken(spoken);
+    if (at >= 0) voiceMoveTo(at);
+  };
+  voiceRec.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      setCloudStatus('Allow the microphone for voice follow', 'warn', 6000); stopVoiceFollow();
+    }
+  };
+  voiceRec.onend = () => { if (voiceOn && !voicePaused) { try { voiceRec.start(); } catch (e) {} } }; // keep listening
+  try { voiceRec.start(); } catch (e) {}
+  return true;
+}
+
+function toggleVoiceFollow() { voiceOn ? stopVoiceFollow() : startVoiceFollow(); }
+
+function startVoiceFollow() {
+  if (!scriptWords.length) { setCloudStatus('Load a script first', 'warn', 4000); return; }
+  if (isPlaying) { isPlaying = false; stopScroll(); }
+  voiceOn = true; voicePaused = false;
+  // continue from whatever is currently on the blue line
+  const guideY = document.getElementById('guideLine').getBoundingClientRect().top;
+  let i = scriptWords.findIndex(w => w.el.getBoundingClientRect().bottom >= guideY);
+  voiceIdx = Math.max(0, i);
+  scriptWords.forEach((w, k) => w.el.classList.toggle('read', k < voiceIdx));
+  document.body.classList.add('voice-on');
+  document.getElementById('voiceBtn').classList.add('active');
+  document.getElementById('playBtn').textContent = '⏸';
+  if (voiceStartListening()) setCloudStatus(`🎤 Voice follow on (${voiceRec.lang === 'fil-PH' ? 'Filipino' : 'English'}) — just start reading`, 'ok', 5000);
+}
+
+function stopVoiceFollow() {
+  voiceOn = false; voicePaused = false;
+  if (voiceRec) { voiceRec.onend = null; try { voiceRec.stop(); } catch (e) {} voiceRec = null; }
+  document.body.classList.remove('voice-on');
+  document.getElementById('voiceBtn').classList.remove('active');
+  document.getElementById('playBtn').textContent = '▶';
+}
+
+// Play/pause (mouse tap, Space, clicker) while voice follow is on = stop/resume listening
+function toggleVoicePause() {
+  voicePaused = !voicePaused;
+  document.getElementById('playBtn').textContent = voicePaused ? '▶' : '⏸';
+  if (voicePaused) { if (voiceRec) { try { voiceRec.stop(); } catch (e) {} } setCloudStatus('🎤 Voice follow paused', 'warn', 3000); }
+  else { if (voiceRec) { try { voiceRec.start(); } catch (e) {} } setCloudStatus('🎤 Listening…', 'ok', 2000); }
+}
+
+// =============================================
 // MIRROR & THEME
 // =============================================
 function toggleMirror() {
@@ -691,6 +877,7 @@ function toggleTheme() {
 function toggleToolbar() {
   toolbarVisible = !toolbarVisible;
   document.getElementById('toolbar').classList.toggle('hidden', !toolbarVisible);
+  placeGuide();
 }
 
 // =============================================
@@ -1279,7 +1466,7 @@ function loadScriptToPrompter(script) {
   const el = document.getElementById('scrollContent');
   const empty = document.getElementById('emptyState');
   if (empty) empty.style.display = 'none';
-  el.textContent = script.text;
+  renderScriptWords(el, script.text);
   resetScroll();
   document.title = script.title + ' — WOTG Teleprompter';
 }
@@ -1359,7 +1546,8 @@ const defaultKeyMap = {
   mirror:         ['m','M'],
   camera:         ['c','C'],
   record:         ['MediaRecord','F9'],
-  toggleUI:       ['h','H','F11']
+  toggleUI:       ['h','H','F11'],
+  voice:          ['v','V']
 };
 
 function getKeyMap() {
@@ -1386,6 +1574,7 @@ function executeAction(action) {
     case 'camera':         toggleCamera(); break;
     case 'record':         toggleRecording(); break;
     case 'toggleUI':       toggleToolbar(); break;
+    case 'voice':          toggleVoiceFollow(); break;
   }
 }
 
@@ -1587,6 +1776,7 @@ async function init() {
   loadCloudSettings();
   document.getElementById('micBoostSelect').value = localStorage.getItem('tp_mic_boost') || '6';
   document.getElementById('noiseSelect').value = localStorage.getItem('tp_noise') === 'off' ? 'off' : 'on';
+  document.getElementById('voiceLangSelect').value = localStorage.getItem('tp_voice_lang') || 'auto';
   loadMics();
   showSaveFolder();
   resumeRecordings();
