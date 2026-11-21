@@ -39,8 +39,8 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
 - **v14:** while voice follow is on, nothing else moves the text: auto-scroll can't start,
   mouse wheel / Magic Mouse swipes and touch drags are ignored; clicker up/down jumps a
   line and re-syncs voice follow to that spot (`voiceNudge`).
-- **v13 Reading line at the top:** default Guide 3% / Top Margin 10%, one-time migration
-  (`tp_guide_top`); `placeGuide()` keeps the blue line just below the toolbar (or at the very
+- **v13 Reading line at the top:** default Guide 15% / Top Margin 15% (v15, lowered a bit), one-time migration
+  (`tp_guide_top` = '2'); `placeGuide()` keeps the blue line just below the toolbar (or at the very
   top when the toolbar is hidden with H).
 - **Recording protection (v9):**
   - Pieces saved every 4 s to the device's storage are now kept as a backup for 2 days

@@ -548,8 +548,8 @@ let recStartTime = 0, recTimerInterval = null;
 // SETTINGS
 // =============================================
 const defaults = {
-  fontSize:36, lineHeight:1.6, textWidth:90, marginTop:10,
-  guide:3, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1, cameraDim:50
+  fontSize:36, lineHeight:1.6, textWidth:90, marginTop:15,
+  guide:15, fontFamily:'Georgia, serif', textOpacity:92, nudgeSize:1, cameraDim:50
 };
 
 // Reading (blue) line: never hidden behind the toolbar; at the very top = closest to the camera
@@ -564,10 +564,10 @@ window.addEventListener('resize', () => placeGuide());
 function loadSettings() {
   let s = JSON.parse(localStorage.getItem('tp_settings')||'null') || {...defaults};
   // one-time move of the reading line to the top (near the camera) — Nov 2026
-  if (!localStorage.getItem('tp_guide_top')) {
-    s.guide = 3; s.marginTop = 10;
+  if (localStorage.getItem('tp_guide_top') !== '2') {
+    s.guide = 15; s.marginTop = 15; // a little below the toolbar, still near the camera
     localStorage.setItem('tp_settings', JSON.stringify(s));
-    localStorage.setItem('tp_guide_top', '1');
+    localStorage.setItem('tp_guide_top', '2');
   }
   applySettings(s); return s;
 }
