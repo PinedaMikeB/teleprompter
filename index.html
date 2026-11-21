@@ -407,6 +407,13 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         <option value="12">+12 dB</option>
       </select>
     </div>
+    <div class="setting-row">
+      <label>Noise Removal</label>
+      <select id="noiseSelect" onchange="localStorage.setItem('tp_noise', this.value)">
+        <option value="on">On (like OBS)</option>
+        <option value="off">Off</option>
+      </select>
+    </div>
     <div class="setting-row" id="saveFolderRow" style="display:none">
       <label>Save videos to</label>
       <button class="btn-secondary" onclick="chooseSaveFolder()" style="padding:6px 12px;border:none;border-radius:8px;cursor:pointer" id="saveFolderBtn">📁 Choose folder</button>
@@ -765,6 +772,17 @@ async function openRecordingAudio() {
     const ctx = new Ctx({ sampleRate: 48000 });
     if (ctx.state === 'suspended') await ctx.resume();
     const src = ctx.createMediaStreamSource(raw);
+    // Noise removal (RNNoise — the same engine OBS uses). Falls back to no removal if it can't load.
+    let first = src;
+    if (localStorage.getItem('tp_noise') !== 'off') {
+      try {
+        const nz = await import('./vendor/noise/index.js');
+        const wasmBinary = await nz.loadRnnoise({ url: './vendor/noise/rnnoise.wasm', simdUrl: './vendor/noise/rnnoise_simd.wasm' });
+        await ctx.audioWorklet.addModule('./vendor/noise/rnnoiseWorklet.js');
+        const rn = new nz.RnnoiseWorkletNode(ctx, { wasmBinary, maxChannels: 2 });
+        src.connect(rn); first = rn;
+      } catch (e) { console.warn('Noise removal unavailable', e); }
+    }
     const boostDb = parseFloat(localStorage.getItem('tp_mic_boost') || '6');
     const gain = ctx.createGain();
     gain.gain.value = Math.pow(10, boostDb / 20);
@@ -773,9 +791,13 @@ async function openRecordingAudio() {
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 4;
     comp.attack.value = 0.006; comp.release.value = 0.2;
+    // Limiter at about -1 dB so loud words never distort (like OBS Limiter)
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -1; lim.knee.value = 0; lim.ratio.value = 20;
+    lim.attack.value = 0.001; lim.release.value = 0.06;
     const dest = ctx.createMediaStreamDestination();
     dest.channelCount = 2;
-    src.connect(gain); gain.connect(comp); comp.connect(dest);
+    first.connect(gain); gain.connect(comp); comp.connect(lim); lim.connect(dest);
     recAudioCtx = ctx;
     // keep the raw tracks so we can stop the mic later
     dest.stream._raw = raw;
@@ -1522,6 +1544,7 @@ async function init() {
   loadSettings();
   loadCloudSettings();
   document.getElementById('micBoostSelect').value = localStorage.getItem('tp_mic_boost') || '6';
+  document.getElementById('noiseSelect').value = localStorage.getItem('tp_noise') === 'off' ? 'off' : 'on';
   loadMics();
   showSaveFolder();
   resumeRecordings();

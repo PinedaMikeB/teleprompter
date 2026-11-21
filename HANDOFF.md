@@ -21,6 +21,10 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   pressed. If no folder/permission, it falls back to the normal download to Downloads.
   Only used when "Send to server" is off. Not shown on iPhone (Safari can't do this).
   Cache bumped to `wotg-tp-v8`.
+- **OBS-style sound chain (v10):** Noise Removal (RNNoise, same engine as OBS) → Mic Boost
+  → compressor → limiter at -1 dB → stereo. RNNoise files are vendored in `vendor/noise/`
+  (from npm `@sapphi-red/web-noise-suppressor` 0.4.1, MIT). Settings → **Noise Removal**
+  On/Off (`tp_noise`). If RNNoise fails to load, recording continues without it.
 - **Recording protection (v9):**
   - Pieces saved every 4 s to the device's storage are now kept as a backup for 2 days
     after the file is saved/downloaded (`savedAt` on the session), instead of deleted.
