@@ -2,7 +2,7 @@
 // WOTG Teleprompter — Service Worker
 // Auto-updating, network-first for app files
 // =============================================
-const CACHE_NAME = 'wotg-tp-v15';
+const CACHE_NAME = 'wotg-tp-v16';
 
 // Core assets to pre-cache for offline
 const PRECACHE = [

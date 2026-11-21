@@ -776,6 +776,7 @@ function locateSpoken(spoken) {
   const needed = tail.length >= 3 ? 2 : 1;
   if (bestScore < needed) return -1;
   if (best < voiceIdx - 1 && bestScore < 3) return -1; // only go back on a strong match
+  if (best > voiceIdx + 12 && bestScore < 3) return -1; // only jump far ahead on a strong match
   return best;
 }
 
@@ -785,10 +786,17 @@ function voiceMoveTo(idx) {
     scriptWords[i].el.classList.toggle('read', i <= idx);
   }
   voiceIdx = idx + 1;
-  // put the line with this word just under the blue guide line
+  // Move up only when a line is finished: if the word just read is the last one on its line,
+  // bring the NEXT line onto the blue line. Otherwise keep the current line where it is.
+  const top = i => scriptWords[i].el.getBoundingClientRect().top;
+  const t = top(idx);
+  let anchor = idx;
+  if (idx + 1 < scriptWords.length && top(idx + 1) > t + 2) anchor = idx + 1; // line done → next line
+  else { while (anchor > 0 && Math.abs(top(anchor - 1) - t) <= 2) anchor--; }  // start of current line
   const guideY = document.getElementById('guideLine').getBoundingClientRect().top;
-  const r = scriptWords[idx].el.getBoundingClientRect();
-  voiceTarget = Math.max(0, scrollY + (r.top - guideY) - r.height * 0.15);
+  const r = scriptWords[anchor].el.getBoundingClientRect();
+  const target = Math.max(0, scrollY + (r.top - guideY) - r.height * 0.15);
+  if (target > voiceTarget || idx < voiceIdx - 1 || target < voiceTarget - r.height * 2) voiceTarget = target;
   if (!voiceAnim) voiceAnim = requestAnimationFrame(voiceGlide);
 }
 

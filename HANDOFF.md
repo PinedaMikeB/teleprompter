@@ -36,6 +36,9 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
   dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
   "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v16:** voice follow order = read → gray → move up. Words gray only after heard; the text
+  moves only when the last word of a line is heard (next line then glides onto the blue line).
+  Big forward jumps (>12 words) need 3 matching words (scripts repeat phrases).
 - **v14:** while voice follow is on, nothing else moves the text: auto-scroll can't start,
   mouse wheel / Magic Mouse swipes and touch drags are ignored; clicker up/down jumps a
   line and re-syncs voice follow to that spot (`voiceNudge`).
