@@ -28,7 +28,8 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
 - **v11:** Mouse click / Magic Mouse tap on the text = play/pause (mouse only; phone keeps
   double-tap). First Record on a computer with no save folder opens the folder picker once.
   Best launched as a bare app window via `/Volumes/Wotg Drive Mike/obs/Open Teleprompter.command`
-  (`Chrome --app=...`, no tabs/address bar).
+  (`Chrome --app=...`, no tabs/address bar). Toolbar ⛶ button (v12): in a tab it reopens
+  the app in a small pop-up window (no tabs); in its own window it toggles full screen.
 - **Recording protection (v9):**
   - Pieces saved every 4 s to the device's storage are now kept as a backup for 2 days
     after the file is saved/downloaded (`savedAt` on the session), instead of deleted.

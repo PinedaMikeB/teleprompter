@@ -276,6 +276,7 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
   <button onclick="toggleCamera()" id="cameraBtn" title="Camera">📷</button>
   <button onclick="toggleMirror()" id="mirrorBtn" title="Mirror">🪞</button>
   <button onclick="toggleTheme()" id="themeBtn" title="Theme">🌙</button>
+  <button onclick="openOwnWindow()" id="windowBtn" title="Open in its own window (no browser tabs)">⛶</button>
   <button onclick="openSettings()" title="Settings">⚙️</button>
 </div>
 
@@ -593,6 +594,31 @@ function resetSettings() {
 }
 
 function openSettings() { document.getElementById('settingsOverlay').classList.add('show'); }
+
+// ⛶ button: in a normal browser tab → reopen the teleprompter in its own small window
+// (no tabs, no bookmarks bar). Already in its own window → toggle true full screen.
+function inOwnWindow() {
+  return window.name === 'tpWindow' ||
+    matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: minimal-ui)').matches ||
+    (window.toolbar && window.toolbar.visible === false);
+}
+function openOwnWindow() {
+  if (isRecording) { setCloudStatus('Stop recording first, then switch windows', 'warn', 4000); return; }
+  if (inOwnWindow()) {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+    return;
+  }
+  const w = Math.min(900, screen.availWidth), h = Math.min(520, screen.availHeight);
+  const left = Math.round((screen.availWidth - w) / 2), top = 0;
+  const win = window.open(location.href, 'tpWindow', `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
+  if (win) {
+    if (cameraOn) stopCamera(); // let the new window use the camera
+    setCloudStatus('✅ Opened in its own window — you can close this tab', 'ok', 8000);
+  } else {
+    setCloudStatus('Pop-up was blocked — allow pop-ups for this site, then tap ⛶ again', 'warn', 8000);
+  }
+}
 function closeSettings() { document.getElementById('settingsOverlay').classList.remove('show'); }
 </script>
 
