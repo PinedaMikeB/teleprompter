@@ -755,28 +755,31 @@ function wordsMatch(a, b) {
   return diff + (a.length - i) + (b.length - j) <= 1;
 }
 
-// Find where in the script the last few spoken words are
+// Find where in the script the last few spoken words are.
+// Strict: the LAST word you said must match the script word at that spot (no landing on a
+// word you haven't said yet), and skipped script words cost points.
 function locateSpoken(spoken) {
   if (!spoken.length || !scriptWords.length) return -1;
   const tail = spoken.slice(-6);
-  const from = Math.max(0, voiceIdx - 8), to = Math.min(scriptWords.length - 1, voiceIdx + 80);
-  let best = -1, bestScore = 0;
+  const last = tail[tail.length - 1];
+  const from = Math.max(0, voiceIdx - 8), to = Math.min(scriptWords.length - 1, voiceIdx + 40);
+  let best = -1, bestScore = -1e9;
   for (let end = from; end <= to; end++) {
-    let score = 0, s = tail.length - 1, k = end;
-    while (s >= 0 && k >= 0 && k > end - 10) {
-      if (wordsMatch(tail[s], scriptWords[k].n)) { score++; s--; k--; }
-      else { k--; } // script word skipped by the speech engine
-      if (end - k > tail.length + 3) break;
+    if (!wordsMatch(last, scriptWords[end].n)) continue;   // must land exactly on the last word said
+    let score = 1, s = tail.length - 2, k = end - 1;
+    while (s >= 0 && k >= 0 && end - k <= tail.length + 3) {
+      if (wordsMatch(tail[s], scriptWords[k].n)) { score += 1; s--; k--; }
+      else if (s > 0 && wordsMatch(tail[s - 1], scriptWords[k].n)) { score -= 0.3; s--; } // misheard word
+      else { score -= 0.5; k--; }                                                       // script word skipped
     }
-    // prefer positions close to where we are (avoid jumping to a repeated phrase far away)
-    const dist = Math.abs(end - voiceIdx);
-    const adj = score - dist / 200;
+    const adj = score - Math.abs(end - voiceIdx) / 50; // nearer to where you are wins ties
     if (adj > bestScore) { bestScore = adj; best = end; }
   }
-  const needed = tail.length >= 3 ? 2 : 1;
+  if (best < 0) return -1;
+  const needed = tail.length >= 3 ? 1.5 : 1;
   if (bestScore < needed) return -1;
   if (best < voiceIdx - 1 && bestScore < 3) return -1; // only go back on a strong match
-  if (best > voiceIdx + 12 && bestScore < 3) return -1; // only jump far ahead on a strong match
+  if (best > voiceIdx + 6 && bestScore < 3) return -1;  // only jump ahead on a strong match
   return best;
 }
 

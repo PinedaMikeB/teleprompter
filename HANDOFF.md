@@ -36,6 +36,9 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
   dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
   "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v17:** stricter voice matching — the last word heard must equal the script word it lands
+  on (fixes jumping from "lindol" to the 2nd "sakuna"); skipped/misheard words cost points;
+  search window 40 words; jumps > 6 words ahead need 3 matches.
 - **v16:** voice follow order = read → gray → move up. Words gray only after heard; the text
   moves only when the last word of a line is heard (next line then glides onto the blue line).
   Big forward jumps (>12 words) need 3 matching words (scripts repeat phrases).
