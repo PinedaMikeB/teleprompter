@@ -1543,6 +1543,7 @@ async function saveScript() {
   if (!text.trim()) { alert('Please enter script text'); return; }
   const script = { id: editingScriptId || 'script_'+Date.now(), title: name, text, updated: Date.now() };
   await dbPut(script);
+  pushScript(script); // also save on the Ryzen server
   currentScriptId = script.id;
   loadScriptToPrompter(script);
   closeEditor();
@@ -1558,6 +1559,7 @@ function loadScriptToPrompter(script) {
 }
 
 async function openScripts() {
+  await syncScripts();
   const modal = document.getElementById('scriptsModal');
   const list = document.getElementById('scriptsList');
   const scripts = await dbGetAll();
@@ -1583,7 +1585,58 @@ async function loadScript(id) {
 }
 async function deleteScript(id) {
   if (!confirm('Delete this script?')) return;
-  await dbDelete(id); openScripts();
+  await dbDelete(id);
+  queueScriptDelete(id); syncScripts();
+  openScripts();
+}
+
+// =============================================
+// SCRIPTS ON THE RYZEN SERVER — every script is saved to
+// /home/mike/repos/teleprompter-scripts on the Ryzen (through teleprompter.marga.biz),
+// so it is never lost and every window / device / Chrome profile sees the same scripts.
+// Uses the same access code as "Save Recordings to Server" (it does NOT turn on cloud recording).
+// =============================================
+async function srvScripts(path, opts) {
+  const c = cloudCfg(); if (!c.token) throw new Error('no access code');
+  const r = await fetch(c.url + path, Object.assign({}, opts, { headers: { 'X-TP-Token': c.token, 'Content-Type': 'application/json' } }));
+  if (!r.ok) throw new Error('server ' + r.status);
+  return r.json();
+}
+function pendingList(key) { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; } }
+function setPending(key, arr) { localStorage.setItem(key, JSON.stringify([...new Set(arr)])); }
+async function pushScript(sc) {
+  try { await srvScripts('/scripts/' + encodeURIComponent(sc.id), { method: 'PUT', body: JSON.stringify(sc) });
+        setPending('tp_scripts_unsynced', pendingList('tp_scripts_unsynced').filter(x => x !== sc.id));
+        setCloudStatus('☁️ Script saved to the Ryzen', 'ok', 2500); }
+  catch (e) { setPending('tp_scripts_unsynced', [...pendingList('tp_scripts_unsynced'), sc.id]);
+              if (cloudCfg().token) setCloudStatus('⚠️ Script saved here only — will send to the Ryzen when it is reachable', 'warn', 5000); }
+}
+function queueScriptDelete(id) { setPending('tp_scripts_deleted', [...pendingList('tp_scripts_deleted'), id]); }
+let syncingScripts = null;
+async function syncScripts() {
+  if (!cloudCfg().token) return false;
+  if (syncingScripts) return syncingScripts;
+  syncingScripts = (async () => {
+    try {
+      for (const id of pendingList('tp_scripts_deleted')) {
+        await srvScripts('/scripts/' + encodeURIComponent(id), { method: 'DELETE' });
+        setPending('tp_scripts_deleted', pendingList('tp_scripts_deleted').filter(x => x !== id));
+      }
+      const { scripts } = await srvScripts('/scripts');
+      const local = await dbGetAll(); const lmap = new Map(local.map(x => [x.id, x]));
+      const dels = new Set(pendingList('tp_scripts_deleted'));
+      for (const r of scripts) {
+        if (dels.has(r.id)) continue;
+        const l = lmap.get(r.id);
+        if (!l || (r.updated || 0) > (l.updated || 0)) await dbPut(await srvScripts('/scripts/' + encodeURIComponent(r.id)));
+      }
+      const rmap = new Map(scripts.map(x => [x.id, x]));
+      for (const l of local) { const r = rmap.get(l.id); if (!r || (l.updated || 0) > (r.updated || 0)) await pushScript(l); }
+      return true;
+    } catch (e) { console.warn('Script sync failed', e); return false; }
+    finally { syncingScripts = null; }
+  })();
+  return syncingScripts;
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -1889,6 +1942,13 @@ if ('serviceWorker' in navigator) {
 // INIT
 // =============================================
 async function init() {
+  // The Mac launcher opens the app with #token=<access code> so every Chrome profile can reach the Ryzen
+  const hm = /[#&]token=([^&]+)/.exec(location.hash || '');
+  if (hm) {
+    localStorage.setItem('tp_rec_token', decodeURIComponent(hm[1]));
+    if (localStorage.getItem('tp_rec_cloud') === null) localStorage.setItem('tp_rec_cloud', 'false'); // keep recording to Raw Videos
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   await openDB();
   loadSettings();
   loadCloudSettings();
@@ -1909,7 +1969,8 @@ async function init() {
   const savedSpeed = localStorage.getItem('tp_speed');
   if (savedSpeed) { speed = parseFloat(savedSpeed); document.getElementById('speedDisplay').textContent = speed%1===0?speed:speed.toFixed(1); }
 
-  // Load last script
+  // Load last script (after getting the scripts saved on the Ryzen)
+  await syncScripts();
   const scripts = await dbGetAll();
   if (scripts.length > 0) { currentScriptId = scripts[0].id; loadScriptToPrompter(scripts[0]); }
 }

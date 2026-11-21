@@ -36,6 +36,15 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
   dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
   "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v21 Scripts on the Ryzen (Nov 21, 2026):** server.js got `GET/PUT/DELETE /scripts[/<id>]`
+  storing JSON + a readable .txt in `/home/mike/repos/teleprompter-scripts` on the Ryzen
+  (`SCRIPTS_DIR`), deletes go to `.trash/`. The app syncs both ways on start, when the 📁 list
+  opens, on save and on delete (newest `updated` wins; offline changes queued in localStorage
+  `tp_scripts_unsynced` / `tp_scripts_deleted`). Uses the same access code as cloud recording
+  but does NOT enable cloud recording. The Mac launcher passes the code as `#token=` and opens
+  Chrome "Profile 38" (michael.marga@gmail.com). Why: on Nov 21 the Mac drive filled up and
+  Chrome reset the app's local storage, wiping the only copy of the script "grow" (restored
+  from the Word file). Ryzen reachable from the Mac via `ssh -J bosgame mike@192.168.100.92`.
 - **v20 (after a full Mac drive broke a 20-min recording on Nov 21):**
   - Video is written LIVE into the chosen folder (`createWritable` on the Raw Videos file, on
     the Wotg drive) while recording; IndexedDB pieces are only a backup; if both fail the

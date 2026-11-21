@@ -7,6 +7,10 @@
 //   GET  /recordings                         list finished videos
 //   GET  /recordings/<file>?token=...        download / play a video
 //   GET  /health
+//   GET  /scripts                            list saved teleprompter scripts
+//   GET  /scripts/<id>                       one script {id,title,text,updated}
+//   PUT  /scripts/<id>                       save/replace a script (JSON body)
+//   DELETE /scripts/<id>                     move a script to .trash (never really deleted)
 //
 // Every request except /health needs the token (header X-TP-Token or ?token=).
 
@@ -21,6 +25,38 @@ const DIR = process.env.REC_DIR || path.join(process.env.HOME, 'teleprompter-rec
 const TOKEN = (process.env.TP_TOKEN || '').trim();
 const MAX_CHUNK = 95 * 1024 * 1024; // Cloudflare free plan caps a request at 100 MB
 const PARTS = path.join(DIR, '.incoming');
+const SCRIPTS = process.env.SCRIPTS_DIR || path.join(process.env.HOME, 'repos', 'teleprompter-scripts');
+fs.mkdirSync(path.join(SCRIPTS, '.trash'), { recursive: true });
+const okScriptId = id => /^[A-Za-z0-9_-]{3,80}$/.test(id || '');
+
+async function readBody(req, max) {
+  let size = 0; const parts = [];
+  for await (const c of req) { size += c.length; if (size > max) throw new Error('too big'); parts.push(c); }
+  return Buffer.concat(parts).toString('utf8');
+}
+async function listScripts() {
+  const files = (await fsp.readdir(SCRIPTS)).filter(f => f.endsWith('.json'));
+  const out = [];
+  for (const f of files) {
+    try { const j = JSON.parse(await fsp.readFile(path.join(SCRIPTS, f), 'utf8')); out.push({ id: j.id, title: j.title, updated: j.updated }); } catch {}
+  }
+  return out.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+}
+async function saveScript(id, body) {
+  const j = JSON.parse(body);
+  const script = { id, title: String(j.title || 'Untitled').slice(0, 200), text: String(j.text || ''), updated: Number(j.updated) || Date.now() };
+  const file = path.join(SCRIPTS, id + '.json');
+  // keep the newest version if two devices save at once
+  try { const old = JSON.parse(await fsp.readFile(file, 'utf8')); if ((old.updated || 0) > script.updated) return old; } catch {}
+  const tmp = file + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
+  await fsp.writeFile(tmp, JSON.stringify(script, null, 1));
+  await fsp.rename(tmp, file);
+  // readable copy of the words, named by title
+  const txtName = (cleanName(script.title) || id) + ' [' + id + '].txt';
+  for (const f of await fsp.readdir(SCRIPTS)) if (f.endsWith(' [' + id + '].txt') && f !== txtName) await fsp.rm(path.join(SCRIPTS, f), { force: true });
+  await fsp.writeFile(path.join(SCRIPTS, txtName), script.title + '\n\n' + script.text);
+  return script;
+}
 
 if (!TOKEN) { console.error('TP_TOKEN is not set'); process.exit(1); }
 fs.mkdirSync(PARTS, { recursive: true });
@@ -38,7 +74,7 @@ function tokenOk(req, url) {
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TP-Token');
   res.setHeader('Access-Control-Max-Age', '86400');
 }
@@ -167,6 +203,22 @@ http.createServer(async (req, res) => {
 h1{font-size:20px}ul{list-style:none;padding:0}li{background:#1d1d1d;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;flex-direction:column;gap:4px}
 a{color:#7cb7ff;font-weight:600;text-decoration:none;word-break:break-all}span{font-size:12px;opacity:.6}</style>
 <h1>🎬 My Teleprompter Recordings</h1><p style="font-size:13px;opacity:.6">Tap a video to play it. To save it, play it then use Share → Save Video.</p><ul>${rows}</ul>`);
+    }
+    if (url.pathname === '/scripts' && req.method === 'GET') return json(res, 200, { scripts: await listScripts() });
+    if (url.pathname.startsWith('/scripts/')) {
+      const id = decodeURIComponent(url.pathname.slice(9));
+      if (!okScriptId(id)) return json(res, 400, { error: 'bad script id' });
+      const file = path.join(SCRIPTS, id + '.json');
+      if (req.method === 'GET') {
+        try { return json(res, 200, JSON.parse(await fsp.readFile(file, 'utf8'))); } catch { return json(res, 404, { error: 'not found' }); }
+      }
+      if (req.method === 'PUT') return json(res, 200, { ok: true, script: await saveScript(id, await readBody(req, 5 * 1024 * 1024)) });
+      if (req.method === 'DELETE') {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        try { await fsp.rename(file, path.join(SCRIPTS, '.trash', id + '.' + stamp + '.json')); } catch {}
+        for (const f of await fsp.readdir(SCRIPTS)) if (f.endsWith(' [' + id + '].txt')) await fsp.rename(path.join(SCRIPTS, f), path.join(SCRIPTS, '.trash', f));
+        return json(res, 200, { ok: true });
+      }
     }
     if (req.method === 'GET' && url.pathname === '/recordings') return json(res, 200, { recordings: await listRecordings() });
     if (req.method === 'GET' && url.pathname.startsWith('/recordings/')) return await sendFile(req, res, decodeURIComponent(url.pathname.slice(12)));
