@@ -685,7 +685,9 @@ function resetScroll() {
 }
 
 function changeSpeed(delta) {
-  speed = Math.max(0.5, Math.min(20, +(speed + delta).toFixed(1)));
+  // below 1 it goes in small steps (0.9, 0.8 … 0.1) for very slow reading
+  const step = (speed < 1 || (speed <= 1 && delta < 0)) ? 0.1 : 0.5;
+  speed = Math.max(0.1, Math.min(20, +(speed + Math.sign(delta) * step).toFixed(1)));
   document.getElementById('speedDisplay').textContent = speed % 1 === 0 ? speed : speed.toFixed(1);
   localStorage.setItem('tp_speed', speed);
 }

@@ -36,6 +36,7 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
   dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
   "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v19:** speed goes below 0.5 — steps of 0.1 under 1, down to 0.1 (very slow).
 - **v18:** the − / + speed buttons also set voice follow's roll-up speed
   (glide factor `0.02 + speed*0.025`, max 0.5 per frame).
 - **v17:** stricter voice matching — the last word heard must equal the script word it lands
