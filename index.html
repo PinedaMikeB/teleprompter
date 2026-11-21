@@ -428,6 +428,10 @@ body:not(.camera-on) .bottom-bar{background:linear-gradient(transparent,var(--bg
         <option value="off">Off</option>
       </select>
     </div>
+    <div class="setting-row">
+      <label>Stored recording pieces</label>
+      <button class="btn-secondary" onclick="clearAllPieces()" style="padding:6px 12px;border:none;border-radius:8px;cursor:pointer" id="clearPiecesBtn">🧹 Clear</button>
+    </div>
     <div class="setting-row" id="saveFolderRow" style="display:none">
       <label>Save videos to</label>
       <button class="btn-secondary" onclick="chooseSaveFolder()" style="padding:6px 12px;border:none;border-radius:8px;cursor:pointer" id="saveFolderBtn">📁 Choose folder</button>
@@ -979,6 +983,7 @@ const REC_VIDEO_BPS = 8000000;    // ~8 Mbps (1080p, like OBS) → about 3.6 GB 
 const REC_AUDIO_BPS = 192000;     // 192 kbps stereo AAC/Opus (studio quality voice)
 let recId = null, recSeq = 0, recSaveChain = Promise.resolve(), recAudioStream = null, wakeLock = null;
 let recAudioCtx = null;
+let recMem = new Map(), recLive = null, recLiveOk = false, recLiveName = '';
 
 // Mic list for Settings → Microphone (names only show after mic permission is given once)
 async function loadMics() {
@@ -1194,10 +1199,8 @@ async function resumeRecordings() {
     if (s.id === recId && isRecording) continue;
     // Already saved/downloaded: the pieces are kept as a safety backup for 2 days, then cleared
     if (s.savedAt) {
-      if (Date.now() - s.savedAt > 2 * 24 * 3600 * 1000) {
-        for (const seq of await chunkSeqs(s.id)) await chunkDel(s.id, seq);
-        await sessDel(s.id);
-      }
+      // downloaded via Downloads (not confirmed in the folder): keep 1 day, then free the space
+      if (Date.now() - s.savedAt > 24 * 3600 * 1000) await clearPieces(s.id);
       continue;
     }
     if (!s.stopped) {
@@ -1268,11 +1271,18 @@ async function saveToFolder(blob, filename) {
   } catch (e) { console.error('Save to folder failed', e); return false; }
 }
 
-async function downloadLocal(id) {
-  const s = await sessGet(id); if (!s) return;
-  const blobs = [];
-  for (const seq of await chunkSeqs(id)) { const c = await chunkGet(id, seq); if (c) blobs.push(c.blob); }
-  if (!blobs.length) { await sessDel(id); return; }
+async function clearPieces(id) {
+  try { for (const seq of await chunkSeqs(id)) await chunkDel(id, seq); await sessDel(id); } catch (e) {}
+}
+
+async function downloadLocal(id, fallbackName, fallbackExt) {
+  let s = null; try { s = await sessGet(id); } catch (e) {}
+  if (!s) s = { name: fallbackName || 'recording', ext: fallbackExt || 'mp4', mime: 'video/mp4' };
+  const pieces = new Map();
+  try { for (const seq of await chunkSeqs(id)) { const c = await chunkGet(id, seq); if (c) pieces.set(seq, c.blob); } } catch (e) {}
+  if (id === recId && recMem) recMem.forEach((b, seq) => pieces.set(seq, b));
+  if (!pieces.size) { try { await sessDel(id); } catch (e) {} return; }
+  const blobs = [...pieces.keys()].sort((a, b) => a - b).map(k => pieces.get(k));
   const blob = new Blob(blobs, { type: s.mime || 'video/mp4' });
   const fname = `${s.name}.${s.ext}`;
   // Pieces are NOT deleted right away: they stay as a backup for 2 days (see resumeRecordings)
@@ -1280,7 +1290,8 @@ async function downloadLocal(id) {
   if (await saveToFolder(blob, fname)) {
     const h = await fsGetDir();
     setCloudStatus(`💾 Saved to ${h ? h.name : 'your folder'}`, 'ok', 6000);
-    await markSaved();
+    await clearPieces(id); // confirmed saved in the folder — free the computer's storage
+    if (id === recId && recMem) recMem.clear();
     return;
   }
   const url = URL.createObjectURL(blob);
@@ -1290,6 +1301,13 @@ async function downloadLocal(id) {
   setCloudStatus('💾 Video downloaded (to Downloads)', 'ok', 6000);
   await markSaved();
   setTimeout(() => URL.revokeObjectURL(url), 120000);
+}
+
+async function clearAllPieces() {
+  if (isRecording) { setCloudStatus('Stop recording first', 'warn', 3000); return; }
+  if (!confirm('Delete all recording pieces kept inside this app? Only do this after your videos are safely in your folder.')) return;
+  for (const s of await sessAll()) await clearPieces(s.id);
+  setCloudStatus('🧹 Cleared — storage freed', 'ok', 4000);
 }
 
 async function keepScreenOn() {
@@ -1321,6 +1339,13 @@ async function startRecording() {
   // Ensure camera is on
   if (!cameraOn) await startCamera();
   if (!cameraStream) return;
+  try {
+    const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+    const dir = FS_SUPPORTED ? await fsGetDir() : null;
+    if (est && !dir && !cloudEnabled() && (est.quota - est.usage) < 3e9) {
+      if (!confirm('Your device is almost out of storage (less than 3 GB free). The recording may not be saved. Record anyway?')) return;
+    }
+  } catch (e) {}
 
   try {
     // Create a combined stream: video from camera + audio from mic
@@ -1337,23 +1362,44 @@ async function startRecording() {
     const realMime = mediaRecorder.mimeType || mime || 'video/mp4';
 
     recId = 'rec' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    recSeq = 0; recSaveChain = Promise.resolve();
+    recSeq = 0; recSaveChain = Promise.resolve(); recMem = new Map(); recLiveOk = false; recLive = null;
     recSessionCloud = cloudEnabled();
-    await sessPut({ id: recId, name: await recordingName(), mime: realMime,
-      ext: realMime.includes('mp4') ? 'mp4' : 'webm', cloud: recSessionCloud,
-      count: 0, stopped: false, created: Date.now() });
+    const recName = await recordingName(), recExt = realMime.includes('mp4') ? 'mp4' : 'webm';
+    try { await sessPut({ id: recId, name: recName, mime: realMime, ext: recExt, cloud: recSessionCloud,
+      count: 0, stopped: false, created: Date.now() }); } catch (e) { console.warn('session save failed', e); }
+
+    // Write the video straight into the chosen folder (e.g. Raw Videos on the Wotg drive) while
+    // recording, so the computer's own (small) drive is not needed for the video.
+    if (!recSessionCloud && FS_SUPPORTED) {
+      try {
+        const dir = await fsGetDir();
+        if (dir && (await dir.queryPermission({ mode: 'readwrite' })) === 'granted') {
+          const fh = await dir.getFileHandle(`${recName}.${recExt}`, { create: true });
+          recLive = await fh.createWritable(); recLiveOk = true; recLiveName = dir.name;
+        }
+      } catch (e) { console.warn('Live save to folder unavailable', e); recLive = null; recLiveOk = false; }
+    }
 
     mediaRecorder.ondataavailable = e => {
       if (!e.data || !e.data.size) return;
       const id = recId, seq = recSeq++, blob = e.data;
       recSaveChain = recSaveChain.then(async () => {
-        await chunkPut({ recId: id, seq, blob });
-        const s = await sessGet(id);
-        if (s) { s.count = Math.max(s.count || 0, seq + 1); await sessPut(s); }
-        if (s && s.cloud) queueUpload(id, seq);
-      }).catch(err => {
-        console.error('Saving piece failed:', err);
-        setCloudStatus('⚠️ Phone storage problem — a piece could not be saved. Is the phone full?', 'warn');
+        let liveSaved = false, dbSaved = false;
+        if (recLive && recLiveOk) {
+          try { await recLive.write(blob); liveSaved = true; }
+          catch (err) { console.error('Live write failed', err); recLiveOk = false; }
+        }
+        try {
+          await chunkPut({ recId: id, seq, blob }); dbSaved = true;
+          const s = await sessGet(id);
+          if (s) { s.count = Math.max(s.count || 0, seq + 1); await sessPut(s); }
+          if (s && s.cloud) queueUpload(id, seq);
+        } catch (err) { console.warn('Backup piece not stored', err); }
+        if (!liveSaved && !dbSaved) {
+          // last resort: keep this piece in memory so it is still in the final video
+          recMem.set(seq, blob);
+          setCloudStatus('⚠️ Computer storage is full — keeping the video in memory. Stop when you can and free up space.', 'warn');
+        }
       });
     };
 
@@ -1362,10 +1408,20 @@ async function startRecording() {
       releaseWakeLock();
       const id = recId;
       await recSaveChain;
-      const s = await sessGet(id); if (!s) return;
-      s.stopped = true; await sessPut(s);
-      if (s.cloud) { updateCloudBadge(); pumpUploads(); maybeFinishAll(); }
-      else await downloadLocal(id);
+      if (recLive) {
+        const ok = recLiveOk;
+        try { await recLive.close(); } catch (e) { console.error('Closing live file failed', e); recLiveOk = false; }
+        recLive = null;
+        if (ok && recLiveOk && !recMem.size) {
+          setCloudStatus(`💾 Saved to ${recLiveName}`, 'ok', 8000);
+          await clearPieces(id); // video is safely in the folder — free the computer's storage
+          return;
+        }
+      }
+      let s = null; try { s = await sessGet(id); } catch (e) {}
+      if (s) { s.stopped = true; try { await sessPut(s); } catch (e) {} }
+      if (s && s.cloud) { updateCloudBadge(); pumpUploads(); maybeFinishAll(); }
+      else await downloadLocal(id, recName, recExt);
     };
 
     // If the camera or mic disconnects, stop cleanly so everything recorded so far is saved
@@ -1543,7 +1599,7 @@ document.getElementById('scrollArea').addEventListener('touchstart', e => {
 }, { passive: true });
 
 document.getElementById('scrollArea').addEventListener('touchmove', e => {
-  if (isPlaying || voiceOn) return;
+  if (isPlaying) return;
   scrollY = Math.max(0, touchStartScrollY + (touchStartY - e.touches[0].clientY));
   applyTransform();
 }, { passive: true });
@@ -1689,6 +1745,7 @@ window.addEventListener('gamepaddisconnected', () => {
 // Mouse click (or Magic Mouse tap) anywhere on the text = play/pause
 document.getElementById('scrollArea').addEventListener('pointerup', e => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  if (mDragged) { mDragged = false; return; } // it was a drag, not a tap
   if (e.target.closest('button, a, input, select, textarea')) return;
   const sel = window.getSelection && window.getSelection();
   if (sel && String(sel).length) return; // was selecting text, not tapping
@@ -1697,10 +1754,41 @@ document.getElementById('scrollArea').addEventListener('pointerup', e => {
 
 // Mouse wheel
 document.getElementById('scrollArea').addEventListener('wheel', e => {
-  if (isPlaying || voiceOn) return; // a light touch on the Magic Mouse must not move the text
-  scrollY = Math.max(0, scrollY + e.deltaY);
-  applyTransform();
+  manualScroll(e.deltaY);
 }, { passive: true });
+
+// Manual scrolling (mouse wheel / Magic Mouse swipe / drag) always works — also during
+// auto-scroll and voice follow. Voice follow then continues from the line on the blue line.
+let voiceResyncTimer = null;
+function manualScroll(dy) {
+  if (voiceAnim) { cancelAnimationFrame(voiceAnim); voiceAnim = null; }
+  scrollY = Math.max(0, scrollY + dy);
+  if (typeof voiceTarget !== 'undefined') voiceTarget = scrollY;
+  applyTransform();
+  if (voiceOn) { clearTimeout(voiceResyncTimer); voiceResyncTimer = setTimeout(voiceResyncFromGuide, 250); }
+}
+function voiceResyncFromGuide() {
+  if (!scriptWords.length) return;
+  const guideY = document.getElementById('guideLine').getBoundingClientRect().top;
+  const i = Math.max(0, scriptWords.findIndex(w => w.el.getBoundingClientRect().bottom >= guideY));
+  voiceIdx = i;
+  scriptWords.forEach((w, k) => w.el.classList.toggle('read', k < i));
+}
+
+// Drag the text up/down with the mouse (click without moving = play/pause)
+let mDragY = null, mDragged = false;
+document.getElementById('scrollArea').addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('button, a, input, select, textarea')) return;
+  mDragY = e.clientY; mDragged = false;
+});
+window.addEventListener('pointermove', e => {
+  if (mDragY === null || e.pointerType !== 'mouse') return;
+  const dy = mDragY - e.clientY;
+  if (!mDragged && Math.abs(dy) < 6) return;
+  mDragged = true; mDragY = e.clientY;
+  manualScroll(dy);
+});
+window.addEventListener('pointerup', () => { setTimeout(() => { mDragY = null; }, 0); });
 
 // =============================================
 // PWA INSTALL

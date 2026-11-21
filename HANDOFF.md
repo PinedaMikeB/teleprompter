@@ -36,6 +36,19 @@ gate, auto volume) and records mono at a low bitrate. Video was capped at 720p.
   (`locateSpoken`), and the text glides so the current word sits on the blue line. Read words
   dim. Play/pause (Space, mouse tap, clicker) pauses listening. Language: Settings →
   "Voice follow language" Auto/Filipino/English (`tp_voice_lang`).
+- **v20 (after a full Mac drive broke a 20-min recording on Nov 21):**
+  - Video is written LIVE into the chosen folder (`createWritable` on the Raw Videos file, on
+    the Wotg drive) while recording; IndexedDB pieces are only a backup; if both fail the
+    piece is kept in memory (`recMem`) and included at Stop.
+  - Pieces are deleted as soon as the file is confirmed in the folder (`clearPieces`);
+    old saved backups cleared after 1 day; Settings → 🧹 Clear stored recording pieces.
+  - Warns before recording if no folder and < 3 GB free.
+  - Mouse wheel / Magic Mouse swipe and mouse drag always move the text (also in voice
+    follow); voice follow re-syncs to the blue line after a manual move.
+  - Rescue recipe if a recording is stuck in Chrome: copy
+    `~/Library/Application Support/Google/Chrome/Profile 38/IndexedDB/https_goteleprompter.netlify.app_0.indexeddb.blob`,
+    sort blob files by hex name, `cat` the ones from that recording (first starts with `ftyp`),
+    then `ffmpeg -i raw.mp4 -c copy out.mp4`.
 - **v19:** speed goes below 0.5 — steps of 0.1 under 1, down to 0.1 (very slow).
 - **v18:** the − / + speed buttons also set voice follow's roll-up speed
   (glide factor `0.02 + speed*0.025`, max 0.5 per frame).
